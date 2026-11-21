@@ -19,7 +19,7 @@ export async function GET(req: Request, { params }: P) {
     const ws = getWorkspace(p.ws_id)!;
     png = await renderFrame(tpl, ws.settings, {
       headline: p.headline, summary: p.summary, keywords: JSON.parse(p.keywords || '[]'), category: p.category, focus: p.focus,
-      source: p.publisher, publishedAt: p.published_at, image: await loadImageDataUri(p.image_url), lang: p.lang, rajkot: /rajkot|રાજકોટ/i.test(p.title),
+      publishedAt: p.published_at, image: await loadImageDataUri(p.image_url), lang: p.lang, rajkot: /rajkot|રાજકોટ/i.test(p.title),
     });
   } else {
     let f = framePath(p.id, p.rev);

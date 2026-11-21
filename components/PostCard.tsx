@@ -48,7 +48,7 @@ export function PostCard({ p, canEdit }: { p: any; canEdit: boolean }) {
       </div>
       <div className="p-4 flex flex-col gap-3 flex-1">
         <div className="flex flex-wrap gap-2 text-[11px]">
-          <span className={`pill ${post.summarizer === 'claude' ? 'bg-purple-100 text-purple-800' : 'bg-slate-100 text-slate-600'}`}>{post.summarizer === 'claude' ? `Claude · ${post.model}` : 'Extractive summary'}</span>
+          <span className={`pill ${post.summarizer === 'gemini' ? 'bg-sky-100 text-sky-800' : post.summarizer === 'claude' ? 'bg-purple-100 text-purple-800' : 'bg-slate-100 text-slate-600'}`}>{post.summarizer === 'gemini' ? `Gemini · ${post.model}` : post.summarizer === 'claude' ? `Claude · ${post.model}` : 'Extractive summary'}</span>
           <span className="pill bg-slate-100 text-slate-600">{post.lang === 'gu' ? 'ગુજરાતી' : 'English'}</span>
           <span className="pill bg-slate-100 text-slate-600">{TPL.find((t) => t[0] === post.template)?.[1]}</span>
         </div>

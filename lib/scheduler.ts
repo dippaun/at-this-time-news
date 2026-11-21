@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { listWorkspaces, log, kvSet } from './db';
-import { runPipeline } from './pipeline';
+import { runPipeline, scrubExistingPosts } from './pipeline';
 
 const g = globalThis as any;
 
@@ -15,5 +15,5 @@ export function startScheduler() {
   };
   g.__gnsScheduler = cron.schedule(`*/${mins} * * * *`, () => { tick('schedule').catch((e) => console.error(e)); });
   log(null, 'info', `In-app scheduler started: every ${mins} min`);
-  setTimeout(() => tick('boot').catch((e) => console.error(e)), 8000);
+  setTimeout(() => scrubExistingPosts().catch((e) => console.error(e)).then(() => tick('boot')).catch((e) => console.error(e)), 8000);
 }

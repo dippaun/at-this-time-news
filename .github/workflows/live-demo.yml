@@ -1,7 +1,7 @@
 # Free public live demo: runs the production app on a GitHub-hosted runner and exposes it with a
 # Cloudflare quick tunnel (https://*.trycloudflare.com). The URL is written to the job summary and
 # to the `live-url` branch (file URL.txt). A run lasts up to ~5.5 hours; re-run the workflow for a new link.
-# Optional repo secret: ANTHROPIC_API_KEY (without it the extractive summariser is used).
+# Repo secrets: GEMINI_API_KEY (free-tier AI summaries), optional ANTHROPIC_API_KEY. Without them the extractive summariser is used.
 name: live-demo
 on:
   workflow_dispatch:
@@ -17,6 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 350
     env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: gemini-3.5-flash-lite
+      AI_PROVIDER: auto
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       ANTHROPIC_MODEL: claude-haiku-4-5-20251001
       FETCH_INTERVAL_MINUTES: '5'

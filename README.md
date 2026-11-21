@@ -11,8 +11,9 @@ Agriculture is the primary focus (mandi/APMC prices, mainly Rajkot and Gondal ya
 | **Live fetch** | 22 verified free RSS feeds: Google News searches in English and Gujarati (`hl=gu`) for agriculture, APMC/yards, industry, Rajkot and general Gujarat news, plus Divya Bhaskar, TOI (Ahmedabad, Rajkot, Surat, Vadodara), DeshGujarat and Indian Express Ahmedabad. Sandesh and Gujarat Samachar have no working public RSS, so they are pulled via Google News `site:` searches. Sources are editable in **Settings**. |
 | **Scheduler** | An in-app scheduler (`node-cron`, started from `instrumentation.ts`) runs every 5 minutes. There is also a **Fetch now** button, a protected `/api/cron` endpoint and an example GitHub Actions workflow. |
 | **Dedupe + ranking** | Each story is deduped by link hash and by normalised-title hash (the same story across feeds). Ranking gives agriculture +6, industry +4.5 and Rajkot/Saurashtra +3, with a bonus for recent stories. Each run fills about 50% agri, 30% industry and 20% other. |
-| **AI summary** | Claude (configurable model, default `claude-haiku-4-5-20251001`) writes a headline, a 2–3 line summary, 5–8 keywords, hashtags, a category, a 1–10 postworthy score and an Instagram caption. You can switch output between Gujarati and English per workspace, or regenerate one post in either language. Only new items are processed, capped at `MAX_ITEMS_PER_RUN` (10) per run. |
-| **Never breaks** | If Claude errors (no key, no credit, bad model), an **extractive summariser** takes over automatically, with a 15-minute back-off. The UI shows which summariser made each post. |
+| **AI summary** | **Google Gemini free tier** (default `gemini-3.5-flash-lite`, one JSON call per unique story, throttled to ~8 requests/min, backs off on 429), then optional Claude (`claude-haiku-4-5-20251001`, used only if it has credit), then the extractive fallback. Set the provider and models in Settings or with `AI_PROVIDER` / `GEMINI_MODEL`. Older fallback posts are re-summarised with AI a few per run (`AI_BACKFILL_PER_RUN`). The AI writes a headline, a 2–3 line summary, 5–8 keywords, hashtags, a category, a 1–10 postworthy score and an Instagram caption. You can switch output between Gujarati and English per workspace, or regenerate one post in either language. Only new items are processed, capped at `MAX_ITEMS_PER_RUN` (10) per run. |
+| **No source in Instagram output** | The portal shows and links the original publisher, but frames, reels, captions and hashtags never mention the source. The prompt forbids it, and a scrubber removes publisher names, URLs and "via X" from all AI and fallback output. |
+| **Never breaks** | If the AI provider errors (no key, quota, retired model), an **extractive summariser** takes over automatically, with a 15-minute back-off. The UI shows which summariser made each post. |
 | **Media** | Image priority: RSS `media:content`/`enclosure`, then the article's `og:image` (Google News links are resolved to the publisher URL first), then a branded gradient placeholder. ffmpeg normalises images (webp to jpeg, ≤1080px). |
 | **Frames** | Server-side PNG rendering with **Satori + resvg** and bundled **Noto Sans + Noto Sans Gujarati**, so Gujarati conjuncts render correctly. There are 3 templates: *Breaking Bold*, *Clean Card* and *Mandi Bulletin*. Brand name, handle, tagline, colours and logo are editable. |
 | **Reel (optional)** | One click makes a 6-second 1080×1350 MP4 (slow zoom) with ffmpeg. |
@@ -51,7 +52,12 @@ grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' logs/tunnel.log | head -1
 
 | Var | Default | Purpose |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | – | Claude key. Optional; the extractive fallback is used without it |
+| `AI_PROVIDER` | `auto` | `auto` (Gemini → Claude → fallback), `gemini`, `claude` or `extractive` |
+| `GEMINI_API_KEY` | – | Google Gemini key (free tier) |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini model (falls back to `gemini-flash-lite-latest` if retired or overloaded) |
+| `GEMINI_MIN_GAP_MS` | `7000` | Throttle between Gemini calls |
+| `AI_BACKFILL_PER_RUN` | `3` | Older fallback posts upgraded with AI per run |
+| `ANTHROPIC_API_KEY` | – | Claude key. Optional |
 | `ANTHROPIC_MODEL` | `claude-haiku-4-5-20251001` | Default model (also editable per workspace) |
 | `AUTH_SECRET` | auto-generated into the DB | Session signing secret |
 | `CRON_SECRET` | – | Bearer token for `/api/cron` |
@@ -74,7 +80,7 @@ flowchart LR
   F --> DB[(SQLite)]
   DB --> Q[Pick top N new<br/>agri 50 / industry 30 / other 20]
   Q --> R[Resolve Google link<br/>og:image + og:description]
-  R --> AI{Claude}
+  R --> AI{Gemini free tier<br/>then Claude}
   AI -- ok --> SUM[Headline, summary,<br/>keywords, hashtags,<br/>score, caption]
   AI -- error --> EX[Extractive fallback] --> SUM
   SUM --> FR[Satori + resvg<br/>1080x1350 PNG<br/>Noto Sans Gujarati]
@@ -84,7 +90,7 @@ flowchart LR
   UI -. coming soon .-> IG[Instagram Graph API]
 ```
 
-Code map: `lib/fetcher.ts` (RSS, dedupe, Google link resolver, og tags) · `lib/classify.ts` (agri/industry/Rajkot ranking) · `lib/summarize.ts` (Claude + fallback) · `lib/render.tsx` (frame templates) · `lib/pipeline.ts` (orchestration) · `lib/scheduler.ts` · `lib/db.ts` (schema + seed) · `lib/instagram.ts` (stub).
+Code map: `lib/fetcher.ts` (RSS, dedupe, Google link resolver, og tags) · `lib/classify.ts` (agri/industry/Rajkot ranking) · `lib/summarize.ts` (Gemini, Claude, fallback, source scrubber) · `lib/render.tsx` (frame templates) · `lib/pipeline.ts` (orchestration) · `lib/scheduler.ts` · `lib/db.ts` (schema + seed) · `lib/instagram.ts` (stub).
 
 ## Deploy permanently for free (later)
 

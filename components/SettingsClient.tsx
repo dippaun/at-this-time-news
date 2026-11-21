@@ -60,10 +60,18 @@ export function SettingsClient({ settings, sources, users, workspaces, isAdmin, 
 
       <section className="card p-6">
         <h2 className="text-xl font-black mb-1">AI & pipeline</h2>
-        <p className="text-sm text-slate-500 mb-4">Claude status: {ai.available ? <b className="text-emerald-600">active</b> : <b className="text-amber-600">fallback ({ai.configured ? ai.lastError || 'unavailable' : 'no ANTHROPIC_API_KEY'})</b>}. Auto-run every {ai.interval} min.</p>
+        <p className="text-sm text-slate-500 mb-4">Order: Gemini (free tier) → Claude (if it has credit) → extractive fallback. Now using: <b className={ai.available ? 'text-emerald-600' : 'text-amber-600'}>{ai.active === 'gemini' ? 'Gemini' : ai.active === 'claude' ? 'Claude' : 'Extractive fallback'}</b>. Auto-run every {ai.interval} min.</p>
+        <div className="grid sm:grid-cols-2 gap-3 mb-4 text-xs">
+          {[['Gemini', ai.gemini, 'GEMINI_API_KEY'], ['Claude', ai.claude, 'ANTHROPIC_API_KEY']].map(([n, p, k]: any) => (
+            <div key={n} className="rounded-xl bg-slate-50 p-3"><b>{n}:</b> {!p.configured ? <span className="text-slate-500">not configured ({k})</span> : p.available ? <span className="text-emerald-700">ready</span> : <span className="text-amber-700">backing off</span>}{p.lastError ? <div className="mt-1 font-mono text-slate-500 truncate">{p.lastError}</div> : null}</div>
+          ))}
+        </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div><label className="label">Output language</label>
             <select disabled={dis} className="input" value={s.language} onChange={(e) => setS({ ...s, language: e.target.value })}><option value="en">English</option><option value="gu">ગુજરાતી (Gujarati)</option></select></div>
+          <div><label className="label">AI provider</label>
+            <select disabled={dis} className="input" value={s.aiProvider} onChange={(e) => setS({ ...s, aiProvider: e.target.value })}><option value="auto">Auto (Gemini → Claude → fallback)</option><option value="gemini">Gemini only</option><option value="claude">Claude only</option><option value="extractive">Extractive only (no AI)</option></select></div>
+          <div><label className="label">Gemini model</label><input disabled={dis} className="input font-mono" value={s.geminiModel} onChange={(e) => setS({ ...s, geminiModel: e.target.value })} /></div>
           <div><label className="label">Claude model</label><input disabled={dis} className="input font-mono" value={s.model} onChange={(e) => setS({ ...s, model: e.target.value })} /></div>
           <div><label className="label">Max new stories per run</label><input disabled={dis} type="number" min={1} max={30} className="input" value={s.maxPerRun} onChange={(e) => setS({ ...s, maxPerRun: Number(e.target.value) })} /></div>
           <div><label className="label">Auto-approve score ≥ (0 = off)</label><input disabled={dis} type="number" min={0} max={10} className="input" value={s.autoApproveScore} onChange={(e) => setS({ ...s, autoApproveScore: Number(e.target.value) })} /></div>

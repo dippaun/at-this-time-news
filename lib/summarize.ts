@@ -1,35 +1,62 @@
 import { kvGet, kvSet, log } from './db';
 
+export type Provider = 'gemini' | 'claude' | 'extractive';
 export type Summary = {
   headline: string; summary: string; keywords: string[]; hashtags: string[]; category: string; score: number; caption: string;
-  summarizer: 'claude' | 'extractive'; model?: string;
+  summarizer: Provider; model?: string;
 };
 type In = { title: string; description: string; publisher: string; focus: string; category: string; priority: number; published_at: number; lang: string };
+export type AiConfig = { provider: 'auto' | Provider; geminiModel: string; claudeModel: string };
 
 const CATEGORIES = ['Agriculture', 'Industry', 'Weather', 'Politics', 'Crime', 'Business', 'Sports', 'Health', 'Education', 'Gujarat'];
+export const GEMINI_DEFAULT = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+// Tried in order if the configured model is retired / overloaded
+const GEMINI_FALLBACKS = ['gemini-3.5-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+const GEMINI_MIN_GAP_MS = Number(process.env.GEMINI_MIN_GAP_MS || 7000); // ≈8 requests/minute, under free-tier RPM
 
-export function aiStatus() {
-  const until = Number(kvGet('claude_down_until') || 0);
+const KEY: Record<'gemini' | 'claude', string | undefined> = {
+  gemini: process.env.GEMINI_API_KEY,
+  claude: process.env.ANTHROPIC_API_KEY,
+};
+
+function provStatus(p: 'gemini' | 'claude') {
+  const until = Number(kvGet(`${p}_down_until`) || 0);
   return {
-    configured: !!process.env.ANTHROPIC_API_KEY,
-    available: !!process.env.ANTHROPIC_API_KEY && Date.now() > until,
-    lastError: kvGet('claude_last_error') || '',
-    lastOk: Number(kvGet('claude_last_ok') || 0),
+    configured: !!KEY[p],
+    available: !!KEY[p] && Date.now() > until,
+    lastError: kvGet(`${p}_last_error`) || '',
+    lastOk: Number(kvGet(`${p}_last_ok`) || 0),
     retryAt: until,
   };
 }
 
-async function claude(it: In, lang: 'en' | 'gu', model: string): Promise<Summary> {
+/** Which provider will be used next and the health of each. */
+export function aiStatus(cfg?: Partial<AiConfig>) {
+  const gemini = provStatus('gemini'), claude = provStatus('claude');
+  const provider = cfg?.provider || (process.env.AI_PROVIDER as any) || 'auto';
+  const order = chain(provider);
+  const active = order.find((p) => p === 'extractive' || (p === 'gemini' ? gemini.available : claude.available)) || 'extractive';
+  return { provider, active, gemini, claude, available: active !== 'extractive', lastError: gemini.lastError || claude.lastError, configured: gemini.configured || claude.configured };
+}
+
+function chain(provider: string): Provider[] {
+  if (provider === 'gemini') return ['gemini', 'extractive'];
+  if (provider === 'claude') return ['claude', 'extractive'];
+  if (provider === 'extractive') return ['extractive'];
+  return ['gemini', 'claude', 'extractive'];
+}
+
+function buildPrompt(it: In, lang: 'en' | 'gu') {
   const langLine = lang === 'gu'
-    ? 'Write headline, summary and caption in Gujarati (ગુજરાતી script). Keywords may be Gujarati or English; hashtags in English or Gujarati without spaces.'
+    ? 'Write headline, summary and caption in Gujarati (ગુજરાતી script). Keywords should be in Gujarati; hashtags in English or Gujarati without spaces. Use ONLY Gujarati script (plus English/digits) — never Hindi, Telugu or any other Indian script.'
     : 'Write everything in clear English (translate if the source is Gujarati).';
-  const prompt = `You are the social-media news editor for a Gujarat news page whose PRIMARY audience is farmers and agri-traders (Rajkot, Gondal, Saurashtra APMC yards), with industry/business as the second focus.
+  return `You are the social-media news editor for a Gujarat news page whose PRIMARY audience is farmers and agri-traders (Rajkot, Gondal, Saurashtra APMC yards), with industry/business as the second focus.
 Story:
 Title: ${it.title}
 Details: ${it.description || '(only the headline is available)'}
-Source: ${it.publisher}
 
 ${langLine}
+STRICT RULE: never mention the news source, publisher, newspaper, TV channel, website, URL, "via", "source" or "reported by" in ANY field (these posts are published under our own brand).
 Return ONLY a JSON object with keys:
 "headline": punchy headline, max 12 words,
 "summary": 2-3 short factual sentences (max 55 words). Do not invent facts beyond the story,
@@ -38,35 +65,92 @@ Return ONLY a JSON object with keys:
 "category": one of ${CATEGORIES.join(', ')},
 "score": integer 1-10 for how postworthy this is for the page (agriculture/mandi prices/weather-for-farmers highest, industry next, Rajkot/Saurashtra boost),
 "caption": Instagram caption (2-4 lines incl. a call to follow the page; no hashtags).`;
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY as string, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify({ model, max_tokens: 700, temperature: 0.3, messages: [{ role: 'user', content: prompt }] }),
-    signal: AbortSignal.timeout(30000),
-  });
-  const j: any = await r.json().catch(() => ({}));
-  if (!r.ok) {
-    const msg = j?.error?.message || `HTTP ${r.status}`;
-    const err: any = new Error(msg);
-    err.status = r.status;
-    throw err;
-  }
-  const text: string = j.content?.map((c: any) => c.text || '').join('') || '';
-  const m = text.match(/\{[\s\S]*\}/);
-  if (!m) throw new Error('No JSON in Claude response');
-  const o = JSON.parse(m[0]);
-  const tags = (o.hashtags || []).map((h: string) => (h.startsWith('#') ? h : `#${h}`).replace(/\s+/g, '')).slice(0, 8);
+}
+
+function toSummary(o: any, it: In, provider: Provider, model: string): Summary {
+  const tags = (o.hashtags || []).map((h: string) => (String(h).startsWith('#') ? h : `#${h}`).replace(/\s+/g, '')).slice(0, 8);
+  if (!o.headline || !o.summary) throw new Error('AI JSON missing headline/summary');
   return {
-    headline: String(o.headline || it.title).trim(),
-    summary: String(o.summary || '').trim(),
+    headline: String(o.headline).trim(),
+    summary: String(o.summary).trim(),
     keywords: (o.keywords || []).map(String).slice(0, 8),
     hashtags: tags,
     category: CATEGORIES.includes(o.category) ? o.category : it.category,
     score: Math.max(1, Math.min(10, Math.round(Number(o.score) || 5))),
     caption: String(o.caption || '').trim(),
-    summarizer: 'claude',
+    summarizer: provider,
     model,
   };
+}
+const parseJson = (text: string) => { const m = text.match(/\{[\s\S]*\}/); if (!m) throw new Error('No JSON in AI response'); return JSON.parse(m[0]); };
+
+class AiError extends Error { constructor(msg: string, public status: number, public retryAfterMs = 0) { super(msg); } }
+
+// ---- Gemini (free tier) with a global throttle ----
+const g = globalThis as any;
+async function throttleGemini() {
+  const wait = (g.__gnsGeminiLast || 0) + GEMINI_MIN_GAP_MS - Date.now();
+  g.__gnsGeminiLast = Date.now() + Math.max(0, wait);
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+}
+
+async function geminiCall(model: string, prompt: string) {
+  await throttleGemini();
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    method: 'POST',
+    headers: { 'x-goog-api-key': KEY.gemini as string, 'content-type': 'application/json' },
+    body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: {
+      responseMimeType: 'application/json', temperature: 0.3, maxOutputTokens: 1200,
+      responseSchema: {
+        type: 'OBJECT', required: ['headline', 'summary', 'keywords', 'hashtags', 'category', 'score', 'caption'],
+        properties: {
+          headline: { type: 'STRING' }, summary: { type: 'STRING' }, caption: { type: 'STRING' }, category: { type: 'STRING' },
+          keywords: { type: 'ARRAY', items: { type: 'STRING' } }, hashtags: { type: 'ARRAY', items: { type: 'STRING' } }, score: { type: 'INTEGER' },
+        },
+      },
+    } }),
+    signal: AbortSignal.timeout(45000),
+  });
+  const j: any = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const delay = j?.error?.details?.find((d: any) => d.retryDelay)?.retryDelay;
+    throw new AiError(j?.error?.message || `HTTP ${r.status}`, r.status, delay ? parseFloat(delay) * 1000 : 0);
+  }
+  const text = j.candidates?.[0]?.content?.parts?.map((p: any) => p.text || '').join('') || '';
+  return parseJson(text);
+}
+
+async function gemini(it: In, lang: 'en' | 'gu', model: string): Promise<Summary> {
+  const prompt = buildPrompt(it, lang);
+  const models = [model, ...GEMINI_FALLBACKS.filter((m) => m !== model)];
+  let last: any;
+  for (const m of [models[0], ...models.slice(0, 3)]) { // first model gets one retry
+    try {
+      const out = toSummary(await geminiCall(m, prompt), it, 'gemini', m);
+      // Guard against stray words in other Indic scripts (seen occasionally in Gujarati output)
+      if (lang === 'gu' && /[\u0900-\u0A7F\u0B00-\u0DFF]/.test(`${out.headline} ${out.summary} ${out.caption}`)) throw new Error('Mixed-script Gujarati output');
+      return out;
+    } catch (e: any) {
+      last = e;
+      // Retired/unknown model or temporary overload -> try the next model; quota (429) -> stop and back off
+      // Malformed JSON (no HTTP status) -> retry with the next model too
+      if (!(e.status === 404 || e.status === 503 || !e.status || /no longer available|not found|high demand/i.test(e.message))) break;
+    }
+  }
+  throw last;
+}
+
+// ---- Claude (optional) ----
+async function claude(it: In, lang: 'en' | 'gu', model: string): Promise<Summary> {
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': KEY.claude as string, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify({ model, max_tokens: 700, temperature: 0.3, messages: [{ role: 'user', content: buildPrompt(it, lang) }] }),
+    signal: AbortSignal.timeout(30000),
+  });
+  const j: any = await r.json().catch(() => ({}));
+  if (!r.ok) throw new AiError(j?.error?.message || `HTTP ${r.status}`, r.status);
+  return toSummary(parseJson(j.content?.map((c: any) => c.text || '').join('') || ''), it, 'claude', model);
 }
 
 const STOP = new Set(('a an the of in on at to for from by with and or is are was were be been has have had will would can could this that these those it its as into over after before about after near amid says said new news latest live today update updates gujarat\'s than more most also up out not no yes his her their our your we you they he she them who what when where why how per via - — | : ; , . ! ? ’s s ' +
@@ -82,10 +166,10 @@ function extractive(it: In, lang: 'en' | 'gu'): Summary {
   const gu = (x: string) => /[\u0A80-\u0AFF]/.test(x);
   const desc = it.description && gu(it.description) === gu(clean) ? it.description : '';
   const sentences = desc.split(/(?<=[.!?।])\s+/).map((s) => s.trim())
-    .filter((s) => s.length > 25 && !clean.startsWith(s.slice(0, 30)) && !/follow|read more|click here|subscribe|ફોલો કરો/i.test(s));
+    .filter((s) => s.length > 25 && !clean.startsWith(s.slice(0, 30)) && !/follow|read more|click here|subscribe|appeared first|ફોલો કરો/i.test(s));
   let summary = [split ? parts.slice(1).join(': ') + '.' : '', ...sentences].filter(Boolean).slice(0, 3).join(' ');
   if (summary.length > 320) summary = summary.slice(0, 317).replace(/\s+\S*$/, '') + '…';
-  if (!summary) summary = it.lang === 'gu' || lang === 'gu' ? `${clean}. સ્રોત: ${it.publisher}.` : `${clean}. Reported by ${it.publisher}.`;
+  if (!summary) summary = split ? parts.slice(1).join(': ') : clean;
 
   const words = `${clean} ${it.description || ''}`.replace(/[“”"'‘’(),.:;!?|–—\-\[\]]/g, ' ').split(/\s+/).filter((w) => w.length > 2 && !STOP.has(w.toLowerCase()) && !/^\d+$/.test(w));
   const freq = new Map<string, number>();
@@ -104,22 +188,46 @@ function extractive(it: In, lang: 'en' | 'gu'): Summary {
   return { headline, summary, keywords, hashtags, category: it.category, score, caption, summarizer: 'extractive' };
 }
 
-/** Claude first; on any failure fall back to the extractive summariser so the demo never breaks. */
-export async function summarize(it: In, lang: 'en' | 'gu', model: string, wsId: number): Promise<Summary> {
-  const st = aiStatus();
-  if (st.available) {
+// Publisher names that must never appear in Instagram output (frames, reels, captions, hashtags)
+const KNOWN_SOURCES = ['Divya Bhaskar', 'DivyaBhaskar', 'Bhaskar English', 'Bhaskar', 'Sandesh', 'Gujarat Samachar', 'GujaratSamachar', 'Times of India', 'TOI', 'DeshGujarat', 'Desh Gujarat', 'Indian Express', 'TV9 Gujarati', 'TV9', 'GSTV', 'BBC Gujarati', 'BBC', 'ABP Asmita', 'News18', 'Zee 24 Kalak', 'VTV', 'Gujarat First', 'Google News', 'Google સમાચાર', 'દિવ્ય ભાસ્કર', 'ગુજરાત સમાચાર', 'DD News', 'ANI', 'PTI', 'Rakhewal Daily', 'AajkaalDaily', 'Connect Gujarat', 'Western Times', 'Ahmedabad Mirror', 'NDTV'];
+const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+export function scrubSource(sm: Summary, publisher: string): Summary {
+  const names = [...new Set([(publisher || '').replace(/[\s\-–|]+$/, ''), ...KNOWN_SOURCES].filter((n) => n && n.trim().length > 1))].sort((a, b) => b.length - a.length);
+  const alt = names.map(esc).join('|');
+  const clean = (t: string) => (t || '')
+    .replace(/https?:\/\/\S+|www\.\S+/gi, '')
+    .replace(new RegExp(`[(\\[]?\\s*(via|source|reported by|courtesy|સ્રોત|સૌજન્ય)\\s*[:\\-]?\\s*(${alt})\\s*[)\\]]?\\.?`, 'gi'), '')
+    .replace(new RegExp(`(?<![\\p{L}\\p{M}])(${alt})(?![\\p{L}\\p{M}])`, 'giu'), '')
+    .replace(/[ \t]+([.,;:!?])/g, '$1').replace(/[ \t]{2,}/g, ' ').replace(/\(\s*\)|\[\s*\]/g, '').replace(/[ \t]*[-–|:][ \t]*$/gm, '').trim();
+  const flat = names.map((n) => n.replace(/\s+/g, '').toLowerCase());
+  const isSource = (t: string) => flat.some((n) => t.replace(/[#\s]/g, '').toLowerCase().includes(n));
+  return {
+    ...sm,
+    headline: clean(sm.headline), summary: clean(sm.summary), caption: clean(sm.caption),
+    keywords: sm.keywords.filter((k) => !isSource(k)).map(clean).filter(Boolean),
+    hashtags: sm.hashtags.filter((h) => !isSource(h)),
+  };
+}
+
+/** Provider chain: Gemini (free tier) -> Claude (if it has credit) -> extractive. Never throws. */
+export async function summarize(it: In, lang: 'en' | 'gu', cfg: AiConfig, wsId: number): Promise<Summary> {
+  for (const p of chain(cfg.provider)) {
+    if (p === 'extractive') break;
+    if (!provStatus(p).available) continue;
     try {
-      const s = await claude(it, lang, model);
-      kvSet('claude_last_ok', String(Date.now()));
-      kvSet('claude_last_error', '');
-      return s;
+      const s = p === 'gemini' ? await gemini(it, lang, cfg.geminiModel || GEMINI_DEFAULT) : await claude(it, lang, cfg.claudeModel);
+      kvSet(`${p}_last_ok`, String(Date.now()));
+      kvSet(`${p}_last_error`, '');
+      return scrubSource(s, it.publisher);
     } catch (e: any) {
       const msg = String(e?.message || e).slice(0, 200);
-      kvSet('claude_last_error', msg);
-      // Back off for billing/auth/model errors so we don't spam the API
-      if ([400, 401, 403, 404, 429].includes(e?.status)) kvSet('claude_down_until', String(Date.now() + 15 * 60e3));
-      log(wsId, 'warn', `Claude unavailable (${msg}) → using extractive summariser`);
+      kvSet(`${p}_last_error`, msg);
+      // Back off: 429 -> server retryDelay (min 60s); auth/billing/model errors -> 15 min
+      const ms = e?.status === 429 ? Math.max(60e3, e.retryAfterMs || 0) : [400, 401, 403, 404].includes(e?.status) ? 15 * 60e3 : e?.status === 503 ? 60e3 : 0;
+      if (ms) kvSet(`${p}_down_until`, String(Date.now() + ms));
+      log(wsId, 'warn', `${p === 'gemini' ? 'Gemini' : 'Claude'} unavailable (${msg})${ms ? ` → backing off ${Math.round(ms / 60e3)} min` : ''}`);
     }
   }
-  return extractive(it, lang);
+  return scrubSource(extractive(it, lang), it.publisher);
 }

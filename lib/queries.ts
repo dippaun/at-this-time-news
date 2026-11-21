@@ -38,6 +38,7 @@ export function stats(wsId: number) {
     industry: one("SELECT COUNT(*) c FROM items WHERE ws_id=? AND focus='industry'"),
     rajkot: one("SELECT COUNT(*) c FROM items WHERE ws_id=? AND (title LIKE '%Rajkot%' OR title LIKE '%રાજકોટ%')"),
     claude: one("SELECT COUNT(*) c FROM posts WHERE ws_id=? AND summarizer='claude'"),
+    ai: one("SELECT COUNT(*) c FROM posts WHERE ws_id=? AND summarizer IN ('gemini','claude')"),
     sources: one('SELECT COUNT(*) c FROM sources WHERE ws_id=? AND enabled=1'),
     runs: one('SELECT COUNT(*) c FROM runs WHERE ws_id=?'),
   };

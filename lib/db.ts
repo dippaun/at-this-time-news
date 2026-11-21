@@ -19,7 +19,9 @@ export type WorkspaceSettings = {
   language: 'en' | 'gu';
   template: 'breaking' | 'clean' | 'mandi';
   maxPerRun: number;
-  model: string;
+  model: string; // Claude model
+  aiProvider: 'auto' | 'gemini' | 'claude' | 'extractive';
+  geminiModel: string;
   autoApproveScore: number; // 0 = off
 };
 
@@ -34,6 +36,8 @@ export const DEFAULT_SETTINGS: WorkspaceSettings = {
   template: 'breaking',
   maxPerRun: Number(process.env.MAX_ITEMS_PER_RUN || 10),
   model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
+  aiProvider: (process.env.AI_PROVIDER as any) || 'auto',
+  geminiModel: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
   autoApproveScore: 0,
 };
 

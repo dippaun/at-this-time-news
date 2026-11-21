@@ -18,14 +18,14 @@ export default async function Overview() {
   const posts = listPosts(wsId, 'pending', 8);
   const runs = recentRuns(wsId, 6);
   const log = activity(wsId, 12);
-  const ai = aiStatus();
+  const ai = aiStatus({ provider: ws.settings.aiProvider });
   const cards = [
     ['Stories fetched', st.items, `${st.items24} in last 24h`, 'from-slate-800 to-slate-600'],
     ['🌾 Agriculture', st.agri, 'primary focus', 'from-emerald-700 to-lime-500'],
     ['🏭 Industry', st.industry, 'second focus', 'from-indigo-700 to-sky-500'],
     ['📍 Rajkot', st.rajkot, 'top geography', 'from-orange-600 to-amber-400'],
     ['Pending review', st.pending, `${st.approved} approved · ${st.rejected} rejected`, 'from-rose-600 to-orange-500'],
-    ['Pipeline runs', st.runs, `${st.sources} active sources`, 'from-purple-700 to-fuchsia-500'],
+    ['Pipeline runs', st.runs, `${st.sources} sources · ${st.ai} AI posts`, 'from-purple-700 to-fuchsia-500'],
   ];
   return (
     <div className="space-y-8">
@@ -41,7 +41,7 @@ export default async function Overview() {
 
       {!ai.available ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          <b>Claude is not active right now</b>{ai.lastError ? <> — <span className="font-mono">{ai.lastError}</span></> : ' — no API key configured'}. Posts are being summarised with the built-in extractive summariser, so the pipeline keeps running. It switches back to Claude automatically once the key works.
+          <b>No AI provider is active right now</b>{ai.lastError ? <> — <span className="font-mono">{ai.lastError}</span></> : ' — no GEMINI_API_KEY / ANTHROPIC_API_KEY configured'}. Posts are being summarised with the built-in extractive summariser, so the pipeline keeps running. It switches back to AI automatically once a provider works.
         </div>
       ) : null}
 

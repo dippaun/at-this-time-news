@@ -19,7 +19,7 @@ export function FetchNow({ canRun }: { canRun: boolean }) {
       <div className="text-xs text-slate-500 text-right leading-tight">
         {st?.running ? <span className="text-orange-600 font-semibold flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-orange-500 animate-ping" />Pipeline running…</span>
           : next !== null ? <>Next auto-run in <b>{Math.floor(next / 60)}m {next % 60}s</b></> : null}
-        <div>AI: {st?.ai?.available ? <b className="text-emerald-600">Claude</b> : <b className="text-amber-600">Extractive fallback</b>}</div>
+        <div>AI: {st?.ai?.available ? <b className="text-emerald-600">{st.ai.active === 'gemini' ? 'Gemini' : 'Claude'}</b> : <b className="text-amber-600">Extractive fallback</b>}</div>
       </div>
       <button disabled={!canRun || busy || st?.running} onClick={run} className="btn-primary">{st?.running ? 'Running…' : '⚡ Fetch now'}</button>
     </div>

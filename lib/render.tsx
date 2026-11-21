@@ -31,7 +31,7 @@ function getFonts() {
 
 export type FrameData = {
   headline: string; summary: string; keywords: string[]; category: string; focus: string;
-  source: string; publishedAt: number; image: string | null; lang: string; rajkot: boolean;
+  publishedAt: number; image: string | null; lang: string; rajkot: boolean;
 };
 
 export const fmtIST = (ts: number) =>
@@ -112,7 +112,7 @@ function Breaking({ s, d }: { s: WorkspaceSettings; d: FrameData }) {
         <Chips items={d.keywords} color={s.accent} bg="rgba(255,255,255,0.04)" border={s.accent} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 48px', height: 96, background: s.primary, fontSize: 25, fontWeight: 700 }}>
-        <div style={{ display: 'flex' }}>{`${d.source} · ${fmtIST(d.publishedAt)}`}</div>
+        <div style={{ display: 'flex' }}>{fmtIST(d.publishedAt)}</div>
         <div style={{ display: 'flex', fontWeight: 900 }}>{s.handle}</div>
       </div>
     </div>
@@ -140,7 +140,7 @@ function Clean({ s, d }: { s: WorkspaceSettings; d: FrameData }) {
         <Chips items={d.keywords.slice(0, 3)} color={s.primary} bg="#fff" border={s.primary} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '3px solid #e2e8f0', paddingTop: 22, fontSize: 24, color: '#64748b', fontWeight: 700 }}>
-        <div style={{ display: 'flex' }}>{`Source: ${d.source}`}</div>
+        <div style={{ display: 'flex' }}>{d.category}</div>
         <div style={{ display: 'flex', color: s.primary, fontWeight: 900 }}>{s.handle}</div>
       </div>
     </div>
@@ -170,7 +170,7 @@ function Mandi({ s, d }: { s: WorkspaceSettings; d: FrameData }) {
         <Chips items={d.keywords} color="#14532d" bg="#bbf7d0" border="#bbf7d0" />
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 48px', height: 92, background: '#052e16', fontSize: 25, fontWeight: 700, color: '#bbf7d0' }}>
-        <div style={{ display: 'flex' }}>{`${d.source} · ${fmtIST(d.publishedAt)}`}</div>
+        <div style={{ display: 'flex' }}>{fmtIST(d.publishedAt)}</div>
         <div style={{ display: 'flex', color: '#facc15', fontWeight: 900 }}>{s.handle}</div>
       </div>
     </div>

@@ -13,7 +13,7 @@ export default async function Settings() {
     <div className="space-y-6">
       <h1 className="text-3xl font-black">Settings · {ws.name}</h1>
       <SettingsClient settings={ws.settings} sources={listSources(wsId)} users={can(s, 'admin') ? listUsers() : []} workspaces={listWorkspaces().map((w) => ({ id: w.id, name: w.name }))}
-        isAdmin={can(s, 'admin')} samplePostId={sample?.id} ai={{ ...aiStatus(), interval: Number(process.env.FETCH_INTERVAL_MINUTES ?? 5) }} />
+        isAdmin={can(s, 'admin')} samplePostId={sample?.id} ai={{ ...aiStatus({ provider: ws.settings.aiProvider }), interval: Number(process.env.FETCH_INTERVAL_MINUTES ?? 5) }} />
     </div>
   );
 }
