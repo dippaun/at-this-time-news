@@ -1,105 +1,126 @@
 /* eslint-disable @next/next/no-img-element */
 import Link from 'next/link';
+import { Rss, Sprout, Factory, Clock, Sparkles, Workflow, ArrowRight, Newspaper, Images, AlertTriangle } from 'lucide-react';
 import { getSession, currentWsId, can } from '@/lib/auth';
-import { getWorkspace } from '@/lib/db';
-import { stats, listPosts, recentRuns, activity, timeAgo, fmtTime } from '@/lib/queries';
-import { FetchNow } from '@/components/FetchNow';
-import { AutoRefresh } from '@/components/AutoRefresh';
+import { getWorkspace, latestRates } from '@/lib/db';
+import { stats, listPosts, recentRuns, activity, timeAgo, fmtTime, series, templateCounts } from '@/lib/queries';
 import { aiStatus } from '@/lib/summarize';
+import { FetchNow } from '@/components/dash/fetch-now';
+import { KpiCard } from '@/components/dash/kpi';
+import { PageHeader } from '@/components/ui/page-header';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty';
+import { buttonClass } from '@/components/ui/button';
+import { MandiWidget } from '@/components/portal/mandi-widget';
+import { AutoRefresh, FadeIn } from '@/components/ui/client';
 export const dynamic = 'force-dynamic';
 
-const LV: Record<string, string> = { info: 'bg-slate-100 text-slate-600', warn: 'bg-amber-100 text-amber-700', error: 'bg-rose-100 text-rose-700', success: 'bg-emerald-100 text-emerald-700' };
+const LV: Record<string, string> = { info: 'bg-muted-foreground/40', warn: 'bg-amber-500', error: 'bg-rose-500', success: 'bg-emerald-500' };
 
 export default async function Overview() {
   const s = await getSession();
   const wsId = await currentWsId();
   const ws = getWorkspace(wsId)!;
   const st = stats(wsId);
-  const posts = listPosts(wsId, 'pending', 8);
+  const sr = series(wsId, 24);
+  const tc = templateCounts(wsId);
+  const posts = listPosts(wsId, 'pending', 4);
   const runs = recentRuns(wsId, 6);
-  const log = activity(wsId, 12);
+  const log = activity(wsId, 10);
   const ai = aiStatus({ provider: ws.settings.aiProvider });
-  const cards = [
-    ['Stories fetched', st.items, `${st.items24} in last 24h`, 'from-slate-800 to-slate-600'],
-    ['🌾 Agriculture', st.agri, 'primary focus', 'from-emerald-700 to-lime-500'],
-    ['🏭 Industry', st.industry, 'second focus', 'from-indigo-700 to-sky-500'],
-    ['📍 Rajkot', st.rajkot, 'top geography', 'from-orange-600 to-amber-400'],
-    ['Pending review', st.pending, `${st.approved} approved · ${st.rejected} rejected`, 'from-rose-600 to-orange-500'],
-    ['Pipeline runs', st.runs, `${st.sources} sources · ${st.ai} AI posts`, 'from-purple-700 to-fuchsia-500'],
-  ];
+  const aiPct = st.posts ? Math.round((st.ai / st.posts) * 100) : 0;
+  const hour = Number(new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', hour12: false }).format(new Date()));
+  const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <AutoRefresh seconds={45} />
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <div className="text-sm font-semibold text-orange-700">{ws.name}</div>
-          <h1 className="text-3xl font-black tracking-tight">Good to see you, {s!.name.split(' ')[0]} 👋</h1>
-          <p className="text-slate-500">Live Gujarat news → AI summary → branded 1080×1350 frames → your approval.</p>
-        </div>
-        <FetchNow canRun={can(s, 'editor')} />
-      </div>
+      <PageHeader eyebrow={ws.name} title={`${greet}, ${s!.name.split(' ')[0]}`} description="Live Gujarat news → Gemini summary → AT THIS TIME frames → your approval. Agriculture first, industry second." actions={<FetchNow canRun={can(s, 'editor')} />} />
 
       {!ai.available ? (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          <b>No AI provider is active right now</b>{ai.lastError ? <> — <span className="font-mono">{ai.lastError}</span></> : ' — no GEMINI_API_KEY / ANTHROPIC_API_KEY configured'}. Posts are being summarised with the built-in extractive summariser, so the pipeline keeps running. It switches back to AI automatically once a provider works.
+        <div className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-800 dark:text-amber-300">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <div><b>No AI provider is active right now.</b> {ai.lastError ? <span className="font-mono text-xs">{ai.lastError}</span> : 'GEMINI_API_KEY is not configured.'} Posts use the built-in extractive summariser until a provider is back.</div>
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-        {cards.map(([t, v, sub, g]) => (
-          <div key={t as string} className={`rounded-2xl bg-gradient-to-br ${g} p-4 text-white shadow-sm`}>
-            <div className="text-xs font-semibold text-white/80">{t}</div>
-            <div className="text-3xl font-black mt-1">{v as number}</div>
-            <div className="text-xs text-white/70 mt-1">{sub}</div>
-          </div>
-        ))}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+        <KpiCard label="Stories" value={st.items} sub={`${st.items24} in the last 24h`} data={sr.items} icon={<Rss />} color="hsl(var(--foreground))" />
+        <KpiCard label="Agriculture" value={st.agri} sub="Primary focus" data={sr.agri} icon={<Sprout />} color="hsl(var(--agri))" />
+        <KpiCard label="Industry" value={st.industry} sub="Second focus" data={sr.industry} icon={<Factory />} color="hsl(var(--industry))" />
+        <KpiCard label="Pending" value={st.pending} sub={`${st.approved} approved · ${st.rejected} rejected`} data={sr.pending} icon={<Clock />} color="#f59e0b" />
+        <KpiCard label="AI summaries" value={`${aiPct}%`} sub={`${st.ai} of ${st.posts} posts`} data={sr.ai} icon={<Sparkles />} color="#0ea5e9" />
+        <KpiCard label="Posts framed" value={st.posts} sub={`${st.runs} runs · ${st.sources} sources`} data={sr.posts} icon={<Workflow />} />
       </div>
 
-      <div className="grid xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-2 card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-lg">Waiting for review</h2>
-            <Link href="/dashboard/queue" className="text-sm font-semibold text-orange-700">Open queue →</Link>
-          </div>
-          {posts.length ? (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {posts.map((p) => (
-                <Link key={p.id} href={`/dashboard/queue#post-${p.id}`} className="group">
-                  <img src={`/api/frame/${p.id}?v=${p.rev}`} alt="" className="rounded-xl border border-slate-200 aspect-[4/5] object-cover group-hover:ring-2 ring-orange-500" loading="lazy" />
-                  <div className="mt-1 text-xs font-semibold line-clamp-2">{p.headline}</div>
-                </Link>
-              ))}
-            </div>
-          ) : <div className="text-sm text-slate-500">Nothing pending. Hit “Fetch now” or wait for the next auto-run.</div>}
-        </div>
-        <div className="card p-5">
-          <h2 className="font-bold text-lg mb-3">Recent pipeline runs</h2>
-          <ul className="space-y-2 text-sm">
-            {runs.map((r) => (
-              <li key={r.id} className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2">
-                <div>
-                  <div className="font-semibold">{fmtTime(r.started_at)} <span className="pill bg-slate-200 text-slate-700 ml-1">{r.trigger}</span></div>
-                  <div className="text-xs text-slate-500">{r.fetched} fetched · {r.new_items} new · {r.posts} posts{r.finished_at ? ` · ${Math.round((r.finished_at - r.started_at) / 1000)}s` : ''}</div>
+      <div className="grid gap-6 xl:grid-cols-3">
+        <Card className="xl:col-span-2">
+          <CardHeader>
+            <div><CardTitle>Up next for review</CardTitle><CardDescription>Highest-priority pending frames</CardDescription></div>
+            <Link href="/dashboard/queue" className={buttonClass('outline', 'sm')}>Open queue <ArrowRight /></Link>
+          </CardHeader>
+          <CardContent>
+            {posts.length ? (
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                {posts.map((p, i) => (
+                  <FadeIn key={p.id} delay={i * 0.05}>
+                    <Link href={`/dashboard/queue#post-${p.id}`} className="group block">
+                      <div className="overflow-hidden rounded-xl border bg-muted shadow-sm"><img src={`/api/frame/${p.id}?v=${p.rev}`} alt="" className="aspect-[4/5] w-full object-cover transition duration-500 group-hover:scale-[1.03]" loading="lazy" /></div>
+                      <div className="gu mt-2 line-clamp-2 text-[13px] font-medium leading-snug group-hover:text-primary">{p.headline}</div>
+                      <div className="mt-1 flex items-center gap-1.5 text-[11px] capitalize text-muted-foreground">{p.template} · {timeAgo(p.created_at)}</div>
+                    </Link>
+                  </FadeIn>
+                ))}
+              </div>
+            ) : <EmptyState icon={<Images />} title="Inbox zero">Nothing pending. Hit “Fetch now” or wait for the next auto-run.</EmptyState>}
+          </CardContent>
+        </Card>
+        <MandiWidget r={latestRates(wsId)} limit={6} />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Card>
+          <CardHeader><div><CardTitle>Templates</CardTitle><CardDescription>Auto-picked per story</CardDescription></div></CardHeader>
+          <CardContent className="space-y-3">
+            {[['news', 'News photo card', 'bg-brand-red'], ['story', 'Person / story card', 'bg-brand-cream border'], ['mandi', 'APMC rate card', 'bg-brand-grey']].map(([k, l, c]) => {
+              const n = tc[k] || 0, pct = st.posts ? Math.round((n / st.posts) * 100) : 0;
+              return (
+                <div key={k}>
+                  <div className="mb-1 flex items-center justify-between text-sm"><span className="flex items-center gap-2"><span className={`size-2.5 rounded-sm ${c}`} />{l}</span><span className="tabular-nums text-muted-foreground">{n}</span></div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full ${c}`} style={{ width: `${pct}%` }} /></div>
                 </div>
-                <span className={`pill ${r.status === 'ok' ? 'bg-emerald-100 text-emerald-700' : r.status === 'running' ? 'bg-orange-100 text-orange-700' : 'bg-rose-100 text-rose-700'}`}>{r.status}</span>
-              </li>
-            ))}
-            {!runs.length ? <li className="text-slate-500">First run starts a few seconds after boot.</li> : null}
-          </ul>
-        </div>
-      </div>
-
-      <div className="card p-5">
-        <div className="flex items-center justify-between mb-3"><h2 className="font-bold text-lg">Activity</h2><Link href="/dashboard/activity" className="text-sm font-semibold text-orange-700">Full log →</Link></div>
-        <ul className="divide-y divide-slate-100 text-sm">
-          {log.map((l) => (
-            <li key={l.id} className="py-2 flex gap-3 items-start">
-              <span className={`pill ${LV[l.level]} shrink-0 w-16 justify-center`}>{l.level}</span>
-              <span className="flex-1">{l.msg}</span>
-              <span className="text-xs text-slate-400 shrink-0">{timeAgo(l.ts)}</span>
-            </li>
-          ))}
-        </ul>
+              );
+            })}
+            <a href="/api/epaper" target="_blank" className="mt-2 flex items-center gap-3 rounded-xl border bg-brand-cream p-3 text-neutral-900 transition hover:shadow-soft">
+              <Newspaper className="size-5 text-brand-red" /><div className="flex-1"><div className="gu text-sm font-bold">{ws.settings.newspaperName}</div><div className="text-[11px] text-neutral-600">Daily e-paper cover (PNG)</div></div><ArrowRight className="size-4" />
+            </a>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><div><CardTitle>Pipeline runs</CardTitle><CardDescription>Every {process.env.FETCH_INTERVAL_MINUTES || 5} minutes</CardDescription></div></CardHeader>
+          <CardContent>
+            <ul className="space-y-1">
+              {runs.map((r) => (
+                <li key={r.id} className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-muted/60">
+                  <span className={`size-2 rounded-full ${r.status === 'ok' ? 'bg-emerald-500' : r.status === 'running' ? 'animate-pulse bg-amber-500' : 'bg-rose-500'}`} />
+                  <div className="min-w-0 flex-1"><div className="text-sm font-medium">{fmtTime(r.started_at)}</div><div className="text-[12px] text-muted-foreground">{r.new_items ?? 0} new · {r.posts ?? 0} posts{r.finished_at ? ` · ${Math.round((r.finished_at - r.started_at) / 1000)}s` : ''}</div></div>
+                  <Badge className="capitalize">{r.trigger}</Badge>
+                </li>
+              ))}
+              {!runs.length ? <li className="text-sm text-muted-foreground">The first run starts a few seconds after boot.</li> : null}
+            </ul>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><div><CardTitle>Activity</CardTitle><CardDescription>Latest events</CardDescription></div><Link href="/dashboard/activity" className="text-[13px] text-muted-foreground hover:text-foreground">View all</Link></CardHeader>
+          <CardContent>
+            <ol className="relative space-y-3 border-l pl-4">
+              {log.map((l) => (
+                <li key={l.id} className="relative text-[13px]"><span className={`absolute -left-[21px] top-1.5 size-2 rounded-full ring-4 ring-card ${LV[l.level]}`} /><div className="line-clamp-2">{l.msg}</div><div className="text-[11px] text-muted-foreground">{timeAgo(l.ts)}</div></li>
+              ))}
+            </ol>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

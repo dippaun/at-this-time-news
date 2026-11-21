@@ -1,17 +1,56 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+Gujarati:wght@400;600;700;800&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-body { @apply bg-slate-50 text-slate-900 antialiased; }
-.card { @apply bg-white rounded-2xl border border-slate-200 shadow-sm; }
-.btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed; }
-.btn-primary { @apply btn bg-orange-600 text-white hover:bg-orange-700; }
-.btn-ghost { @apply btn bg-white border border-slate-200 text-slate-700 hover:bg-slate-50; }
-.btn-green { @apply btn bg-emerald-600 text-white hover:bg-emerald-700; }
-.btn-red { @apply btn bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100; }
-.input { @apply w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-500/40 focus:border-orange-500; }
-.label { @apply block text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1; }
-.pill { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold; }
-.ticker { animation: ticker 60s linear infinite; }
-@keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@layer base {
+  :root {
+    --background: 0 0% 99%;
+    --foreground: 224 30% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 224 30% 11%;
+    --muted: 220 16% 96%;
+    --muted-foreground: 220 9% 44%;
+    --border: 220 14% 90%;
+    --input: 220 14% 87%;
+    --ring: 358 77% 50%;
+    --primary: 358 77% 50%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 225 54% 23%;
+    --accent-foreground: 0 0% 100%;
+    --agri: 142 64% 32%;
+    --industry: 226 64% 48%;
+  }
+  .dark {
+    --background: 228 18% 6%;
+    --foreground: 220 15% 94%;
+    --card: 228 16% 9%;
+    --card-foreground: 220 15% 94%;
+    --muted: 228 14% 14%;
+    --muted-foreground: 220 9% 62%;
+    --border: 228 12% 18%;
+    --input: 228 12% 22%;
+    --ring: 358 85% 60%;
+    --primary: 358 82% 56%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 225 60% 62%;
+    --accent-foreground: 228 18% 6%;
+    --agri: 142 60% 48%;
+    --industry: 226 85% 68%;
+  }
+  * { @apply border-border; }
+  html { -webkit-tap-highlight-color: transparent; }
+  body { @apply bg-background text-foreground antialiased; font-feature-settings: 'cv11', 'ss01'; }
+  ::selection { background: hsl(var(--primary) / 0.2); }
+  :lang(gu), .gu { font-family: var(--font-gujarati), var(--font-geist-sans), sans-serif; line-height: 1.55; }
+}
+
+@layer components {
+  .glass { @apply bg-background/70 backdrop-blur-xl backdrop-saturate-150 supports-[backdrop-filter]:bg-background/60; }
+  .grid-bg {
+    background-image: linear-gradient(to right, hsl(var(--border) / 0.6) 1px, transparent 1px), linear-gradient(to bottom, hsl(var(--border) / 0.6) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse at top, black 30%, transparent 75%);
+  }
+  .scrollbar-none { scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+}

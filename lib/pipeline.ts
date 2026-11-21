@@ -23,7 +23,7 @@ export const normTpl = (t?: string) => (TEMPLATE_IDS.includes(t || '') ? (t as s
 /** Auto-pick the brand template per story: mandi/price -> market-rate card, person-centric -> story card, else news card. */
 export function pickTemplate(it: any, sm: { person?: boolean; rates?: any[]; yard?: string }, hasImage: boolean, forced?: string) {
   if (forced && forced !== 'auto') return normTpl(forced);
-  if ((sm.rates && sm.rates.length >= 2) || (it.focus === 'agri' && MANDI_RE.test(it.title) && /(યાર્ડ|apmc|mandi|yard|ભાવ|price)/i.test(it.title))) return 'mandi';
+  if ((sm.rates && sm.rates.length >= 2) || (it.focus === 'agri' && /(યાર્ડ|apmc|એપીએમસી|mandi|મંડી|market yard)/i.test(it.title) && /(ભાવ|price|rate|આવક|arrival)/i.test(it.title))) return 'mandi';
   if (sm.person && hasImage) return 'story';
   return 'news';
 }
