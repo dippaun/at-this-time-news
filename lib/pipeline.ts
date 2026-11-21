@@ -26,7 +26,18 @@ export const normTpl = (t?: string) => (TEMPLATE_IDS.includes(t || '') ? (t as s
 export function officialYards(): string[] {
   return (db().prepare("SELECT DISTINCT yard FROM mandi_rates WHERE sample=0 AND source<>''").all() as any[]).map((r) => r.yard);
 }
-const yardIn = (text: string, yards: string[]) => yards.find((y) => text.includes(y)) || '';
+/** Yard names actually named in the text ("ગોંડલ માર્કેટ યાર્ડ" → ગોંડલ, "Gondal APMC" → Gondal). */
+const namedYards = (text: string) => [
+  ...[...text.matchAll(/([\p{L}\p{M}]+)\s*(?:ના\s+)?(?:માર્કેટિંગ\s+|માર્કેટ\s+)?(?:યાર્ડ|એપીએમસી)/gu)].map((m) => m[1]),
+  ...[...text.matchAll(/(\w+)\s+(?:apmc|market(?:ing)? yard|mandi)/gi)].map((m) => m[1].toLowerCase()),
+];
+const EN_YARD: Record<string, string> = { rajkot: 'રાજકોટ', gondal: 'ગોંડલ', jasdan: 'જસદણ', morbi: 'મોરબી', junagadh: 'જુનાગઢ', amreli: 'અમરેલી', jamnagar: 'જામનગર', dhoraji: 'ધોરાજી', jetpur: 'જેતપુર', upleta: 'ઉપલેટા', bhavnagar: 'ભાવનગર', botad: 'બોટાદ' };
+/** The official yard the story is about — only if the story names that yard (never a different yard's rates). */
+const yardIn = (text: string, yards: string[]) => {
+  const named = namedYards(text).map((n) => EN_YARD[n] || n.replace(/ના$/, ''));
+  if (!named.length) return '';
+  return yards.find((y) => named.some((n) => n === y || n.startsWith(y))) || '';
+};
 
 /** Auto-pick the brand template per story: a price story for a yard we have OFFICIAL rates for -> market-rate card,
  *  person-centric -> story card, else news card. Never shows rates of a different yard than the story's. */
