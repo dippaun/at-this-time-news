@@ -14,6 +14,7 @@ export async function GET(req: Request, { params }: P) {
   if (!p) return new Response('Not found', { status: 404 });
   let png: Buffer;
   const tpl = u.searchParams.get('tpl');
+  try {
   if (tpl && tpl !== p.template) {
     const ws = getWorkspace(p.ws_id)!;
     png = await renderFrame(tpl, ws.settings, {
@@ -24,6 +25,10 @@ export async function GET(req: Request, { params }: P) {
     let f = framePath(p.id, p.rev);
     if (!fs.existsSync(f)) f = await renderPost(p.id);
     png = fs.readFileSync(f);
+  }
+  } catch (e: any) {
+    console.error('[frame] render failed', id, tpl, e);
+    return new Response(`Render failed: ${e?.message || e}`, { status: 500 });
   }
   const headers: Record<string, string> = { 'content-type': 'image/png', 'cache-control': 'public, max-age=60' };
   if (u.searchParams.get('download')) headers['content-disposition'] = `attachment; filename="gujarat-post-${id}.png"`;
