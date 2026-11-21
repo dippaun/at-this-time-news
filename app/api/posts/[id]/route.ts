@@ -1,6 +1,6 @@
 import { guard } from '@/lib/auth';
 import { db, log } from '@/lib/db';
-import { renderPost, createPostForItem } from '@/lib/pipeline';
+import { renderPost, createPostForItem, normTpl } from '@/lib/pipeline';
 import { publishToInstagram } from '@/lib/instagram';
 type P = { params: Promise<{ id: string }> };
 
@@ -15,11 +15,11 @@ export async function PATCH(req: Request, { params }: P) {
     d.prepare('UPDATE posts SET status=?, updated_at=? WHERE id=?').run(b.status, Date.now(), id);
     log(p.ws_id, b.status === 'approved' ? 'success' : 'info', `Post #${id} ${b.status} by ${g.s.email}`);
   }
-  const visual = ['headline', 'summary', 'keywords', 'template'].some((k) => k in b);
+  const visual = ['headline', 'summary', 'keywords', 'template', 'reporter'].some((k) => k in b);
   if (visual || 'caption' in b || 'hashtags' in b) {
     const kw = Array.isArray(b.keywords) ? b.keywords : typeof b.keywords === 'string' ? b.keywords.split(',').map((s: string) => s.trim()).filter(Boolean) : JSON.parse(p.keywords || '[]');
-    d.prepare('UPDATE posts SET headline=?, summary=?, caption=?, keywords=?, template=?, rev=rev+?, updated_at=? WHERE id=?')
-      .run(b.headline ?? p.headline, b.summary ?? p.summary, b.caption ?? p.caption, JSON.stringify(kw), b.template ?? p.template, visual ? 1 : 0, Date.now(), id);
+    d.prepare('UPDATE posts SET headline=?, summary=?, caption=?, keywords=?, template=?, reporter=?, rev=rev+?, updated_at=? WHERE id=?')
+      .run(b.headline ?? p.headline, b.summary ?? p.summary, b.caption ?? p.caption, JSON.stringify(kw), b.template ? normTpl(b.template) : p.template, b.reporter ?? p.reporter ?? '', visual ? 1 : 0, Date.now(), id);
     if (visual) await renderPost(Number(id));
     log(p.ws_id, 'info', `Post #${id} edited by ${g.s.email}${visual ? ' (frame re-rendered)' : ''}`);
   }

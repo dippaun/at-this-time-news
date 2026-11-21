@@ -1,10 +1,10 @@
 import fs from 'fs';
 import path from 'path';
-import { DATA_DIR, db, getWorkspace, log } from './db';
+import { DATA_DIR, db, getWorkspace, log, latestRates, type RateSet, type WorkspaceSettings } from './db';
 import { fetchSources, enrichFromPage, resolveGoogleNews } from './fetcher';
 import { summarize, aiStatus, scrubSource } from './summarize';
 import { kvGet, kvSet } from './db';
-import { renderFrame, FrameData } from './render';
+import { renderFrame, renderReelFrame, FrameData } from './render';
 import { loadImageDataUri } from './media';
 
 const g = globalThis as any;
@@ -15,22 +15,64 @@ export function framePath(postId: number, rev: number) {
   return path.join(DATA_DIR, 'frames', `${postId}-${rev}.png`);
 }
 
-export async function renderPost(postId: number): Promise<string> {
+const MANDI_RE = /(યાર્ડ|apmc|એપીએમસી|mandi|મંડી|market yard|marketing yard|બજાર ભાવ|ભાવ|price|rate)/i;
+const RAJKOT_RE = /rajkot|રાજકોટ|gondal|ગોંડલ|saurashtra|સૌરાષ્ટ્ર|jasdan|જસદણ/i;
+export const TEMPLATE_IDS = ['news', 'story', 'mandi'];
+export const normTpl = (t?: string) => (TEMPLATE_IDS.includes(t || '') ? (t as string) : 'news');
+
+/** Auto-pick the brand template per story: mandi/price -> market-rate card, person-centric -> story card, else news card. */
+export function pickTemplate(it: any, sm: { person?: boolean; rates?: any[]; yard?: string }, hasImage: boolean, forced?: string) {
+  if (forced && forced !== 'auto') return normTpl(forced);
+  if ((sm.rates && sm.rates.length >= 2) || (it.focus === 'agri' && MANDI_RE.test(it.title) && /(યાર્ડ|apmc|mandi|yard|ભાવ|price)/i.test(it.title))) return 'mandi';
+  if (sm.person && hasImage) return 'story';
+  return 'news';
+}
+
+export function ratesForPost(p: any): RateSet | null {
   const d = db();
-  const p = d.prepare('SELECT p.*, i.image_url, i.publisher, i.published_at, i.title FROM posts p JOIN items i ON i.id=p.item_id WHERE p.id=?').get(postId) as any;
+  const own = d.prepare('SELECT yard, date, unit FROM mandi_rates WHERE item_id=? AND sample=0 LIMIT 1').get(p.item_id) as any;
+  if (own) return latestRates(p.ws_id, own.yard);
+  const flags = JSON.parse(p.flags || '{}');
+  return (flags.yard && latestRates(p.ws_id, flags.yard)) || latestRates(p.ws_id);
+}
+
+export async function frameDataForPost(p: any): Promise<FrameData> {
+  return {
+    headline: noEmoji(p.headline), summary: noEmoji(p.summary), keywords: JSON.parse(p.keywords || '[]').map(noEmoji),
+    category: p.category || 'Gujarat', focus: p.focus, publishedAt: p.published_at, image: await loadImageDataUri(p.image_url),
+    lang: p.lang, rajkot: RAJKOT_RE.test(`${p.title} ${p.headline}`), reporter: p.reporter || '',
+    rates: normTpl(p.template) === 'mandi' ? ratesForPost(p) : null,
+  };
+}
+
+export const postWithItem = (id: number) => db().prepare('SELECT p.*, i.image_url, i.publisher, i.published_at, i.title, i.link FROM posts p JOIN items i ON i.id=p.item_id WHERE p.id=?').get(id) as any;
+
+export async function renderPost(postId: number): Promise<string> {
+  const p = postWithItem(postId);
   if (!p) throw new Error('post not found');
   const ws = getWorkspace(p.ws_id)!;
-  const image = await loadImageDataUri(p.image_url);
-  const fd: FrameData = {
-    headline: noEmoji(p.headline), summary: noEmoji(p.summary), keywords: JSON.parse(p.keywords || '[]').map(noEmoji),
-    category: p.category || 'Gujarat', focus: p.focus, publishedAt: p.published_at, image,
-    lang: p.lang, rajkot: /rajkot|રાજકોટ|gondal|ગોંડલ|saurashtra|સૌરાષ્ટ્ર/i.test(`${p.title} ${p.headline}`),
-  };
-  const png = await renderFrame(p.template || ws.settings.template, ws.settings, fd);
+  const png = await renderFrame(normTpl(p.template), ws.settings, await frameDataForPost(p));
   const out = framePath(p.id, p.rev);
   fs.writeFileSync(out, png);
-  d.prepare('UPDATE posts SET image_path=? WHERE id=?').run(out, p.id);
+  db().prepare('UPDATE posts SET image_path=? WHERE id=?').run(out, p.id);
   return out;
+}
+
+export async function renderReelPng(postId: number, transparentBand = false) {
+  const p = postWithItem(postId);
+  const ws = getWorkspace(p.ws_id)!;
+  return renderReelFrame(ws.settings, await frameDataForPost(p), transparentBand);
+}
+
+/** Brand caption: Gujarati headline (1-2 lines) + 3-4 hashtags incl. #atthistime #viralpost + topic tag. No emojis, no source. */
+export function brandCaption(s: WorkspaceSettings, headline: string, tpl: string, it: any, score: number, extra?: string) {
+  const fresh = Date.now() - it.published_at < 3 * 3600e3;
+  const topic = tpl === 'mandi' ? '#APMC' : fresh && score >= 8 ? '#BreakingNews' : '#NewsUpdate';
+  const tags = ['#atthistime', '#viralpost', topic];
+  if (tpl === 'mandi') tags.push('#apmc_rate');
+  else if (/rajkot|રાજકોટ/i.test(it.title)) tags.push('#Rajkot');
+  else if (s.cityTag) tags.push(s.cityTag);
+  return `${noEmoji(headline)}${extra ? `\n${noEmoji(extra)}` : ''}\n\n${tags.join(' ')}`;
 }
 
 export async function createPostForItem(wsId: number, itemId: number, langOverride?: 'en' | 'gu') {
@@ -53,18 +95,28 @@ export async function createPostForItem(wsId: number, itemId: number, langOverri
   const lang = langOverride || ws.settings.language;
   const s = await summarize(it, lang, { provider: ws.settings.aiProvider, geminiModel: ws.settings.geminiModel, claudeModel: ws.settings.model }, wsId);
   const now = Date.now();
+  const hasImage = !!(await loadImageDataUri(it.image_url));
+  const tpl = pickTemplate(it, s, hasImage, ws.settings.template);
+  if (s.rates && s.rates.length >= 2) {
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date(it.published_at));
+    d.prepare('DELETE FROM mandi_rates WHERE item_id=?').run(it.id);
+    const ins = d.prepare('INSERT INTO mandi_rates (ws_id, yard, date, commodity, min_price, max_price, unit, item_id, sample, created_at) VALUES (?,?,?,?,?,?,?,?,0,?)');
+    for (const r of s.rates.slice(0, 16)) ins.run(wsId, s.yard || ws.settings.location, day, r.commodity, r.min, r.max, '20 કિલો', it.id, now);
+    log(wsId, 'success', `Extracted ${s.rates.length} APMC rates (${s.yard || ws.settings.location}) from "${it.title.slice(0, 50)}"`);
+  }
+  const flags = JSON.stringify({ person: !!s.person, yard: s.yard || '' });
   const status = ws.settings.autoApproveScore > 0 && s.score >= ws.settings.autoApproveScore ? 'approved' : 'pending';
   const existing = d.prepare('SELECT id, rev FROM posts WHERE item_id=?').get(itemId) as any;
   let postId: number;
-  const caption = `${s.caption || s.headline}\n\n${s.hashtags.join(' ')}`;
+  const caption = brandCaption(ws.settings, s.headline, tpl, it, s.score, tpl === 'mandi' ? `${s.yard || ws.settings.location} બજાર ભાવ` : '');
   if (existing) {
-    d.prepare(`UPDATE posts SET headline=?, summary=?, caption=?, keywords=?, hashtags=?, category=?, focus=?, score=?, lang=?, summarizer=?, model=?, rev=rev+1, updated_at=? WHERE id=?`)
-      .run(s.headline, s.summary, caption, JSON.stringify(s.keywords), JSON.stringify(s.hashtags), s.category, it.focus, s.score, lang, s.summarizer, s.model || null, now, existing.id);
+    d.prepare(`UPDATE posts SET headline=?, summary=?, caption=?, keywords=?, hashtags=?, category=?, focus=?, score=?, lang=?, summarizer=?, model=?, template=?, flags=?, rev=rev+1, updated_at=? WHERE id=?`)
+      .run(s.headline, s.summary, caption, JSON.stringify(s.keywords), JSON.stringify(s.hashtags), s.category, it.focus, s.score, lang, s.summarizer, s.model || null, tpl, flags, now, existing.id);
     postId = existing.id;
   } else {
-    const r = d.prepare(`INSERT INTO posts (ws_id, item_id, headline, summary, caption, keywords, hashtags, category, focus, score, lang, template, status, summarizer, model, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(wsId, itemId, s.headline, s.summary, caption, JSON.stringify(s.keywords), JSON.stringify(s.hashtags), s.category, it.focus, s.score, lang, ws.settings.template, status, s.summarizer, s.model || null, now, now);
+    const r = d.prepare(`INSERT INTO posts (ws_id, item_id, headline, summary, caption, keywords, hashtags, category, focus, score, lang, template, status, summarizer, model, created_at, updated_at, flags, reporter)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(wsId, itemId, s.headline, s.summary, caption, JSON.stringify(s.keywords), JSON.stringify(s.hashtags), s.category, it.focus, s.score, lang, tpl, status, s.summarizer, s.model || null, now, now, flags, ws.settings.reporterDefault || '');
     postId = Number(r.lastInsertRowid);
   }
   d.prepare('UPDATE items SET processed=1 WHERE id=?').run(itemId);
@@ -95,6 +147,16 @@ export async function runPipeline(wsId: number, trigger: 'schedule' | 'manual' |
     picks.push(...pick("AND focus='industry'", Math.round(limit * 0.3), ids()));
     picks.push(...pick("AND focus NOT IN ('agri','industry')", limit - picks.length, ids()));
     picks.push(...pick('', limit - picks.length, ids()));
+    // Near-duplicate guard: the same story often arrives from several outlets.
+    const seen: Set<string>[] = (d.prepare('SELECT i.title, p.headline FROM posts p JOIN items i ON i.id=p.item_id WHERE p.ws_id=? AND p.created_at > ?')
+      .all(wsId, Date.now() - 48 * 3600e3) as any[]).flatMap((r) => [stems(r.title), stems(r.headline)]);
+    const unique: any[] = [];
+    for (const p of picks) {
+      const st = stems(p.title);
+      if (seen.some((x) => similar(st, x))) { d.prepare('UPDATE items SET processed=3 WHERE id=?').run(p.id); continue; }
+      seen.push(st); unique.push(p);
+    }
+    picks.length = 0; picks.push(...unique);
     let made = 0;
     for (const p of picks) {
       try {
@@ -159,4 +221,15 @@ export async function scrubExistingPosts() {
   }
   kvSet('scrub_sources_v1', String(Date.now()));
   if (rows.length) log(null, 'info', `Removed source names from ${rows.length} existing posts and re-rendered their frames`);
+}
+
+/** Crude stemmer for EN + Gujarati titles: first 4 chars of each meaningful token. */
+export function stems(t: string): Set<string> {
+  return new Set(String(t || '').toLowerCase().replace(/[^\p{L}\p{M}\p{N}\s]/gu, ' ').split(/\s+/)
+    .filter((w) => w.length >= 3 && !/^(યાર્ડ|આવક|માર્કેટ|જિલ્લા|ભાવ)/.test(w) && !/^(the|and|for|with|from|after|over|news|gujarat|ગુજરાત|માટે|અને)$/.test(w)).map((w) => [...w].slice(0, 4).join('')));
+}
+export function similar(a: Set<string>, b: Set<string>) {
+  if (!a.size || !b.size) return false;
+  let n = 0; for (const x of a) if (b.has(x)) n++;
+  return n >= 3 && n / Math.min(a.size, b.size) >= 0.5;
 }

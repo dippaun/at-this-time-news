@@ -9,15 +9,26 @@ export const DATA_DIR = path.resolve(process.env.DATA_DIR || './data');
 fs.mkdirSync(path.join(DATA_DIR, 'frames'), { recursive: true });
 fs.mkdirSync(path.join(DATA_DIR, 'media'), { recursive: true });
 
+export type TemplateId = 'news' | 'story' | 'mandi';
 export type WorkspaceSettings = {
-  brandName: string;
+  settingsVersion: number;
+  brandName: string; // e.g. AT THIS TIME
+  brandTag: string; // e.g. MEDIA
   handle: string;
   tagline: string;
-  primary: string;
-  accent: string;
-  logoUrl: string; // data: URI or https URL; empty => text logo
+  primary: string; // brand red
+  accent: string; // navy
+  logoUrl: string; // data: URI or https URL; empty => megaphone mark
+  whatsapp: string;
+  location: string; // city pill, e.g. જસદણ / રાજકોટ
+  cityTag: string; // extra hashtag, e.g. #Jasdan
+  sponsorUrl: string; // sponsor banner image (data URI / URL); empty => placeholder
+  appLine: string;
+  newspaperName: string; // e-paper masthead
+  newspaperTagline: string;
+  reporterDefault: string;
   language: 'en' | 'gu';
-  template: 'breaking' | 'clean' | 'mandi';
+  template: 'auto' | TemplateId;
   maxPerRun: number;
   model: string; // Claude model
   aiProvider: 'auto' | 'gemini' | 'claude' | 'extractive';
@@ -26,20 +37,33 @@ export type WorkspaceSettings = {
 };
 
 export const DEFAULT_SETTINGS: WorkspaceSettings = {
-  brandName: 'Gujarat Live',
-  handle: '@gujaratlive.news',
-  tagline: 'ખેતી · ઉદ્યોગ · ગુજરાત',
-  primary: '#D9480F',
-  accent: '#FACC15',
+  settingsVersion: 2,
+  brandName: 'AT THIS TIME',
+  brandTag: 'MEDIA',
+  handle: '@at_this_time_jasdan',
+  tagline: 'જસદણ · રાજકોટ · ગુજરાત',
+  primary: '#E31E24',
+  accent: '#1B2A5C',
   logoUrl: '',
+  whatsapp: '72038 88088',
+  location: 'જસદણ',
+  cityTag: '#Jasdan',
+  sponsorUrl: '',
+  appLine: 'વિગતવાર સમાચાર મેળવવા માટે AT THIS TIME NEWS એપ ડાઉનલોડ કરો',
+  newspaperName: 'એટ ધીસ ટાઈમ',
+  newspaperTagline: 'AT THIS TIME (DAILY)',
+  reporterDefault: '',
   language: 'gu',
-  template: 'breaking',
+  template: 'auto',
   maxPerRun: Number(process.env.MAX_ITEMS_PER_RUN || 10),
   model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
   aiProvider: (process.env.AI_PROVIDER as any) || 'auto',
   geminiModel: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
   autoApproveScore: 0,
 };
+
+// Brand keys reset when upgrading settings from v1 (old demo brand) to v2 (AT THIS TIME brand system)
+const V2_KEYS: (keyof WorkspaceSettings)[] = ['brandName', 'brandTag', 'handle', 'tagline', 'primary', 'accent', 'whatsapp', 'location', 'cityTag', 'appLine', 'newspaperName', 'newspaperTagline', 'template', 'language', 'settingsVersion'];
 
 const g = globalThis as any;
 
@@ -58,7 +82,12 @@ function init(db: Database.Database) {
   CREATE TABLE IF NOT EXISTS activity (id INTEGER PRIMARY KEY, ws_id INTEGER, ts INTEGER, level TEXT, msg TEXT);
   CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY, ws_id INTEGER, trigger TEXT, started_at INTEGER, finished_at INTEGER, fetched INTEGER DEFAULT 0, new_items INTEGER DEFAULT 0, posts INTEGER DEFAULT 0, status TEXT, error TEXT);
   CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
+  CREATE TABLE IF NOT EXISTS mandi_rates (id INTEGER PRIMARY KEY, ws_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE, yard TEXT, date TEXT, commodity TEXT, min_price REAL, max_price REAL, unit TEXT DEFAULT '20 કિલો', item_id INTEGER, sample INTEGER DEFAULT 0, created_at INTEGER);
+  CREATE INDEX IF NOT EXISTS idx_rates ON mandi_rates(ws_id, date DESC);
   `);
+  const cols = (db.prepare('PRAGMA table_info(posts)').all() as any[]).map((c) => c.name);
+  if (!cols.includes('reporter')) db.exec("ALTER TABLE posts ADD COLUMN reporter TEXT DEFAULT ''");
+  if (!cols.includes('flags')) db.exec("ALTER TABLE posts ADD COLUMN flags TEXT DEFAULT '{}'");
   seed(db);
 }
 
@@ -69,6 +98,7 @@ function seed(db: Database.Database) {
       .run('Gujarat News', 'gujarat-news', JSON.stringify(DEFAULT_SETTINGS), Date.now());
     addDefaultSources(db, Number(ws.lastInsertRowid));
   }
+  seedSampleRates(db);
   const u = db.prepare('SELECT COUNT(*) c FROM users').get() as any;
   if (u.c === 0) {
     const ins = db.prepare('INSERT INTO users (email, name, password_hash, role, created_at) VALUES (?,?,?,?,?)');
@@ -121,7 +151,9 @@ export function getWorkspace(id: number): Workspace | null {
   return r ? rowToWs(r) : null;
 }
 function rowToWs(r: any): Workspace {
-  return { id: r.id, name: r.name, slug: r.slug, settings: { ...DEFAULT_SETTINGS, ...JSON.parse(r.settings || '{}') } };
+  const saved = JSON.parse(r.settings || '{}');
+  if ((saved.settingsVersion || 1) < 2) for (const k of V2_KEYS) delete saved[k];
+  return { id: r.id, name: r.name, slug: r.slug, settings: { ...DEFAULT_SETTINGS, ...saved } };
 }
 export function saveSettings(id: number, s: Partial<WorkspaceSettings>) {
   const ws = getWorkspace(id);
@@ -132,4 +164,27 @@ export function saveSettings(id: number, s: Partial<WorkspaceSettings>) {
 export function log(wsId: number | null, level: 'info' | 'warn' | 'error' | 'success', msg: string) {
   db().prepare('INSERT INTO activity (ws_id, ts, level, msg) VALUES (?,?,?,?)').run(wsId, Date.now(), level, msg);
   console.log(`[${new Date().toISOString()}] [ws ${wsId}] ${level.toUpperCase()} ${msg}`);
+}
+
+/** Example APMC rates (clearly flagged sample=1) so the market-rate card works before real data is extracted. */
+export function seedSampleRates(db: Database.Database) {
+  const wsIds = (db.prepare('SELECT id FROM workspaces').all() as any[]).map((w) => w.id);
+  const rows: [string, number, number][] = [['કપાસ', 1420, 1655], ['મગફળી (જાડી)', 1050, 1325], ['મગફળી (જીણી)', 1080, 1290], ['જીરું', 3850, 4460], ['ઘઉં', 482, 560], ['ચણા', 1040, 1210], ['તલ', 2120, 2510], ['ડુંગળી', 200, 800], ['લસણ', 900, 1820], ['એરંડા', 1180, 1242], ['સોયાબીન', 820, 905], ['બાજરી', 420, 525], ['મગ', 1310, 1660], ['અડદ', 1150, 1480]];
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+  for (const id of wsIds) {
+    const has = db.prepare('SELECT 1 FROM mandi_rates WHERE ws_id=? LIMIT 1').get(id);
+    if (has) continue;
+    const ins = db.prepare('INSERT INTO mandi_rates (ws_id, yard, date, commodity, min_price, max_price, unit, sample, created_at) VALUES (?,?,?,?,?,?,?,1,?)');
+    for (const [c, a, b] of rows) ins.run(id, 'જસદણ', today, c, a, b, '20 કિલો', Date.now());
+  }
+}
+
+export type RateSet = { yard: string; date: string; unit: string; sample: boolean; rows: { commodity: string; min: number; max: number }[] };
+export function latestRates(wsId: number, yard?: string): RateSet | null {
+  const d = db();
+  const pick = (sample: number) => d.prepare(`SELECT yard, date FROM mandi_rates WHERE ws_id=? AND sample=? ${yard ? 'AND yard=?' : ''} ORDER BY date DESC, id DESC LIMIT 1`).get(...[wsId, sample, ...(yard ? [yard] : [])]) as any;
+  const head = pick(0) || pick(1);
+  if (!head) return null;
+  const rows = d.prepare('SELECT commodity, min_price, max_price, unit, sample FROM mandi_rates WHERE ws_id=? AND yard=? AND date=? ORDER BY sample, id LIMIT 16').all(wsId, head.yard, head.date) as any[];
+  return { yard: head.yard, date: head.date, unit: rows[0]?.unit || '20 કિલો', sample: !!rows[0]?.sample, rows: rows.map((r) => ({ commodity: r.commodity, min: r.min_price, max: r.max_price })) };
 }

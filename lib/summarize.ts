@@ -4,6 +4,7 @@ export type Provider = 'gemini' | 'claude' | 'extractive';
 export type Summary = {
   headline: string; summary: string; keywords: string[]; hashtags: string[]; category: string; score: number; caption: string;
   summarizer: Provider; model?: string;
+  person?: boolean; yard?: string; rates?: { commodity: string; min: number; max: number }[];
 };
 type In = { title: string; description: string; publisher: string; focus: string; category: string; priority: number; published_at: number; lang: string };
 export type AiConfig = { provider: 'auto' | Provider; geminiModel: string; claudeModel: string };
@@ -64,7 +65,10 @@ Return ONLY a JSON object with keys:
 "hashtags": array of 5-8 hashtags each starting with #,
 "category": one of ${CATEGORIES.join(', ')},
 "score": integer 1-10 for how postworthy this is for the page (agriculture/mandi prices/weather-for-farmers highest, industry next, Rajkot/Saurashtra boost),
-"caption": Instagram caption (2-4 lines incl. a call to follow the page; no hashtags).`;
+"caption": 1-2 line Gujarati caption that restates the headline (no emojis, no hashtags, no call to action),
+"person": true if the story is mainly about one named person (appointment, award, achievement, obituary, profile), else false,
+"yard": ONLY the short APMC / market-yard name in Gujarati (max 4 words, e.g. "ગોંડલ યાર્ડ") if the story is about a specific yard, otherwise exactly "" (empty string, no explanation),
+"rates": ONLY if the story text explicitly lists commodity prices: array of {"commodity" (Gujarati name), "min" (number, price per 20 kg), "max" (number, price per 20 kg)}; otherwise []. Never guess numbers.`;
 }
 
 function toSummary(o: any, it: In, provider: Provider, model: string): Summary {
@@ -78,6 +82,9 @@ function toSummary(o: any, it: In, provider: Provider, model: string): Summary {
     category: CATEGORIES.includes(o.category) ? o.category : it.category,
     score: Math.max(1, Math.min(10, Math.round(Number(o.score) || 5))),
     caption: String(o.caption || '').trim(),
+    person: !!o.person,
+    yard: cleanYard(o.yard),
+    rates: Array.isArray(o.rates) ? o.rates.filter((r: any) => r && r.commodity && Number(r.max) > 0).map((r: any) => ({ commodity: String(r.commodity), min: Number(r.min) || 0, max: Number(r.max) })) : [],
     summarizer: provider,
     model,
   };
@@ -106,6 +113,8 @@ async function geminiCall(model: string, prompt: string) {
         properties: {
           headline: { type: 'STRING' }, summary: { type: 'STRING' }, caption: { type: 'STRING' }, category: { type: 'STRING' },
           keywords: { type: 'ARRAY', items: { type: 'STRING' } }, hashtags: { type: 'ARRAY', items: { type: 'STRING' } }, score: { type: 'INTEGER' },
+          person: { type: 'BOOLEAN' }, yard: { type: 'STRING' },
+          rates: { type: 'ARRAY', items: { type: 'OBJECT', properties: { commodity: { type: 'STRING' }, min: { type: 'NUMBER' }, max: { type: 'NUMBER' } } } },
         },
       },
     } }),
@@ -185,7 +194,8 @@ function extractive(it: In, lang: 'en' | 'gu'): Summary {
   const caption = lang === 'gu'
     ? `${headline}\n\n${summary}\n\nવધુ ગુજરાત સમાચાર માટે ફોલો કરો 🔔`
     : `${headline}\n\n${summary}\n\nFollow for live Gujarat agri & industry updates 🔔`;
-  return { headline, summary, keywords, hashtags, category: it.category, score, caption, summarizer: 'extractive' };
+  const person = /(નિમણૂક|નિયુક્ત|સન્માન|એવોર્ડ|શ્રદ્ધાંજલિ|અવસાન|બેસણું|જન્મદિવસ|appointed|award|honou?red|passes away|obituary|felicitat)/i.test(clean);
+  return { headline, summary, keywords, hashtags, category: it.category, score, caption: headline, summarizer: 'extractive', person, yard: '', rates: [] };
 }
 
 // Publisher names that must never appear in Instagram output (frames, reels, captions, hashtags)
@@ -230,4 +240,14 @@ export async function summarize(it: In, lang: 'en' | 'gu', cfg: AiConfig, wsId: 
     }
   }
   return scrubSource(extractive(it, lang), it.publisher);
+}
+
+/** Keep only short, real yard names; drop model explanations. */
+export function cleanYard(v: unknown): string {
+  let y = String(v || '').trim().split(/[,(\-–—.]/)[0].trim();
+  if (!y || y.length > 32 || y.split(/\s+/).length > 4) return '';
+  if (/(નથી|ખાલી|લાગુ|empty|none|n\/a)/i.test(y)) return '';
+  if (!/(યાર્ડ|apmc|એપીએમસી|yard|મંડી)/i.test(y)) return '';
+  y = y.replace(/(યાર્ડ)\S+/, '$1').replace(/યાર્ડુ$/, 'યાર્ડ');
+  return y;
 }
