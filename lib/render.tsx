@@ -213,7 +213,7 @@ function MandiCard({ s, d }: { s: WorkspaceSettings; d: FrameData }) {
   const rowH = rows.length > 12 ? 44 : 50;
   return (
     <div style={{ width: W, height: H, display: 'flex', flexDirection: 'column', background: GREY, fontFamily: SANS }}>
-      <TopRow s={s} d={{ publishedAt: r ? Date.parse(r.date + 'T12:00:00+05:30') : d.publishedAt }} dark bg={GREY} />
+      <TopRow s={{ ...s, location: r?.yard || s.location }} d={{ publishedAt: r ? Date.parse(r.date + 'T12:00:00+05:30') : d.publishedAt }} dark bg={GREY} />
       <div style={{ display: 'flex', justifyContent: 'center', textAlign: 'center', color: WHITE, fontSize: 38, fontWeight: 900, padding: '0 40px 14px', lineClamp: 1 }}>{d.headline}</div>
       <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, margin: '0 64px 22px', background: WHITE, padding: '20px 26px', position: 'relative', boxShadow: '0 12px 30px rgba(0,0,0,0.35)' }}>
         <div style={{ display: 'flex', justifyContent: 'center', fontSize: 31, fontWeight: 900, color: '#111' }}>{`શ્રી ${(r?.yard || s.location).replace(/\s*(માર્કેટિંગ|માર્કેટ)?\s*(યાર્ડ|apmc|એપીએમસી)\s*$/i, '') || s.location} ખેત ઉત્પન્ન બજાર સમિતિ`}</div>
@@ -237,9 +237,6 @@ function MandiCard({ s, d }: { s: WorkspaceSettings; d: FrameData }) {
           </div>
         ))}
         {!rows.length ? <div style={{ display: 'flex', justifyContent: 'center', padding: 40, fontSize: 28, color: '#666' }}>ભાવ ઉપલબ્ધ નથી</div> : null}
-        {r?.sample ? (
-          <div style={{ display: 'flex', position: 'absolute', bottom: 16, right: 20, background: RED, color: WHITE, fontSize: 20, fontWeight: 900, padding: '4px 14px', borderRadius: 8, fontFamily: SANS }}>નમૂના ભાવ · SAMPLE DATA</div>
-        ) : null}
       </div>
       <AppLine s={s} height={58} />
       <Sponsor s={s} height={200} />
@@ -287,18 +284,18 @@ function Epaper({ s, stories, ts }: { s: WorkspaceSettings; stories: DigestStory
         <div style={{ display: 'flex' }}>{`વોટ્સએપ: ${s.whatsapp}`}</div>
         <div style={{ display: 'flex' }}>{dateLine(ts)}</div>
       </div>
-      {lead ? <div style={{ display: 'flex', fontSize: 58, fontWeight: 900, lineHeight: 1.2, margin: '16px 0 12px', color: s.primary, lineClamp: 2 }}>{lead.headline}</div> : null}
+      {lead ? <div style={{ display: 'flex', fontSize: 52, fontWeight: 900, lineHeight: 1.2, margin: '12px 0 10px', color: s.primary, lineClamp: 2 }}>{lead.headline}</div> : null}
       <div style={{ display: 'flex', gap: 22 }}>
         <div style={{ display: 'flex', flexDirection: 'column', width: 640, flexShrink: 0, gap: 10 }}>
-          {lead ? <div style={{ display: 'flex', width: 640, height: 400, overflow: 'hidden', border: '2px solid #111' }}>{lead.image ? <img src={lead.image} width={640} height={400} style={{ objectFit: 'cover' }} /> : <div style={{ display: 'flex', width: 640, height: 400, background: `linear-gradient(140deg, ${NAVY}, ${RED})` }} />}</div> : null}
-          {lead ? <div style={{ display: 'flex', fontSize: 23, lineHeight: 1.5, fontFamily: SANS, textAlign: 'justify', lineClamp: 4 }}>{lead.summary}</div> : null}
+          {lead ? <div style={{ display: 'flex', width: 640, height: 330, overflow: 'hidden', border: '2px solid #111' }}>{lead.image ? <img src={lead.image} width={640} height={330} style={{ objectFit: 'cover' }} /> : <div style={{ display: 'flex', width: 640, height: 330, background: `linear-gradient(140deg, ${NAVY}, ${RED})` }} />}</div> : null}
+          {lead ? <div style={{ display: 'flex', fontSize: 21, lineHeight: 1.45, fontFamily: SANS, textAlign: 'justify', lineClamp: 3 }}>{lead.summary}</div> : null}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', width: 340, flexShrink: 0, gap: 14, borderLeft: '2px solid #111', paddingLeft: 18 }}>
           {side.map((x, i) => (
             <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingBottom: 12, borderBottom: i === 0 ? '2px solid #111' : 'none' }}>
-              {x.image ? <img src={x.image} width={320} height={150} style={{ objectFit: 'cover' }} /> : null}
-              <div style={{ display: 'flex', fontSize: 28, fontWeight: 900, lineHeight: 1.25, lineClamp: 3 }}>{x.headline}</div>
-              <div style={{ display: 'flex', fontSize: 19, lineHeight: 1.45, fontFamily: SANS, lineClamp: x.image ? 3 : 6 }}>{x.summary}</div>
+              {x.image ? <img src={x.image} width={320} height={110} style={{ objectFit: 'cover' }} /> : null}
+              <div style={{ display: 'block', fontSize: 26, fontWeight: 900, lineHeight: 1.25, lineClamp: 2, maxHeight: 66, overflow: 'hidden' }}>{x.headline}</div>
+              <div style={{ display: 'block', fontSize: 18, lineHeight: 1.4, fontFamily: SANS, lineClamp: 3, maxHeight: 76, overflow: 'hidden' }}>{x.summary}</div>
             </div>
           ))}
         </div>
@@ -307,8 +304,9 @@ function Epaper({ s, stories, ts }: { s: WorkspaceSettings; stories: DigestStory
       <div style={{ display: 'flex', gap: 20, marginTop: 12, flexGrow: 1 }}>
         {bottom.map((x, i) => (
           <div key={i} style={{ display: 'flex', flexDirection: 'column', width: 320, flexShrink: 0, gap: 6, borderLeft: i ? '2px solid #111' : 'none', paddingLeft: i ? 18 : 0 }}>
-            <div style={{ display: 'flex', fontSize: 27, fontWeight: 900, lineHeight: 1.25, lineClamp: 2 }}>{x.headline}</div>
-            <div style={{ display: 'flex', fontSize: 19, lineHeight: 1.45, fontFamily: SANS, textAlign: 'justify', lineClamp: 5 }}>{x.summary}</div>
+            {x.image ? <img src={x.image} width={i ? 302 : 320} height={105} style={{ objectFit: 'cover' }} /> : null}
+            <div style={{ display: 'block', fontSize: 25, fontWeight: 900, lineHeight: 1.25, lineClamp: 2, maxHeight: 63, overflow: 'hidden' }}>{x.headline}</div>
+            <div style={{ display: 'block', fontSize: 18, lineHeight: 1.4, fontFamily: SANS, textAlign: 'justify', lineClamp: 3, maxHeight: 76, overflow: 'hidden' }}>{x.summary}</div>
           </div>
         ))}
       </div>

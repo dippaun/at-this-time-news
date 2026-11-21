@@ -71,12 +71,14 @@ export const CITIES: { key: string; en: string; gu: string }[] = [
   { key: 'amreli', en: 'Amreli', gu: 'અમરેલી' }, { key: 'bhavnagar', en: 'Bhavnagar', gu: 'ભાવનગર' }, { key: 'ahmedabad', en: 'Ahmedabad', gu: 'અમદાવાદ' },
   { key: 'surat', en: 'Surat', gu: 'સુરત' }, { key: 'vadodara', en: 'Vadodara', gu: 'વડોદરા' }, { key: 'kutch', en: 'Kutch', gu: 'કચ્છ' },
 ];
+/** Portal shows only stories with a verified local image (publisher photo cached or AI-generated). */
+const HAS_IMG = "i.image_url LIKE '/api/media/%'";
 const STORY_SELECT = `SELECT i.id, p.id post_id, COALESCE(p.headline, i.title) title, COALESCE(NULLIF(p.summary,''), i.description, '') summary, i.image_url, i.publisher, i.link,
   i.published_at, i.focus, COALESCE(p.category, i.category) category, p.score, COALESCE(p.lang, i.lang) lang, p.keywords, p.template, p.rev
   FROM items i LEFT JOIN posts p ON p.item_id=i.id AND p.status != 'rejected'`;
 
 export function portalFeed(wsId: number, o: { focus?: string; city?: string; q?: string; limit?: number; days?: number } = {}): Story[] {
-  const where: string[] = ['i.ws_id=?', 'i.processed != 3'];
+  const where: string[] = ['i.ws_id=?', 'i.processed != 3', HAS_IMG];
   const args: any[] = [wsId];
   if (o.days) { where.push('i.published_at > ?'); args.push(Date.now() - o.days * 86400e3); }
   if (o.focus && o.focus !== 'all') { where.push('i.focus=?'); args.push(o.focus); }
@@ -88,13 +90,13 @@ export function portalFeed(wsId: number, o: { focus?: string; city?: string; q?:
     (i.priority + CASE WHEN i.published_at > ${Date.now() - 12 * 3600e3} THEN 3 ELSE 0 END) DESC, i.published_at DESC LIMIT ?`).all(...args) as Story[];
 }
 export function latestStories(wsId: number, n = 14): Story[] {
-  return db().prepare(`${STORY_SELECT} WHERE i.ws_id=? AND i.processed != 3 ORDER BY (p.id IS NOT NULL) DESC, i.published_at DESC LIMIT ?`).all(wsId, n) as Story[];
+  return db().prepare(`${STORY_SELECT} WHERE i.ws_id=? AND i.processed != 3 AND ${HAS_IMG} ORDER BY (p.id IS NOT NULL) DESC, i.published_at DESC LIMIT ?`).all(wsId, n) as Story[];
 }
 export function storyById(id: number): (Story & { ws_id: number; source_name: string | null; caption: string | null }) | null {
   return (db().prepare(`SELECT i.ws_id, s.name source_name, p.caption, x.* FROM (${STORY_SELECT} WHERE i.id=?) x JOIN items i ON i.id=x.id LEFT JOIN sources s ON s.id=i.source_id LEFT JOIN posts p ON p.id=x.post_id`).get(id) as any) || null;
 }
 export function relatedStories(wsId: number, focus: string, exclude: number, n = 4): Story[] {
-  return db().prepare(`${STORY_SELECT} WHERE i.ws_id=? AND i.focus=? AND i.id != ? AND i.processed != 3 ORDER BY (p.id IS NOT NULL) DESC, i.published_at DESC LIMIT ?`).all(wsId, focus, exclude, n) as Story[];
+  return db().prepare(`${STORY_SELECT} WHERE i.ws_id=? AND i.focus=? AND i.id != ? AND i.processed != 3 AND ${HAS_IMG} ORDER BY (p.id IS NOT NULL) DESC, i.published_at DESC LIMIT ?`).all(wsId, focus, exclude, n) as Story[];
 }
 
 // ---------- Dashboard series ----------

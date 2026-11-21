@@ -6,6 +6,8 @@ import { summarize, aiStatus, scrubSource } from './summarize';
 import { kvGet, kvSet } from './db';
 import { renderFrame, renderReelFrame, FrameData } from './render';
 import { loadImageDataUri } from './media';
+import { ensureItemImage, fallbackScene, backfillImages } from './imagegen';
+import { refreshRates } from './mandi';
 
 const g = globalThis as any;
 g.__gnsRunning = g.__gnsRunning || new Set<number>();
@@ -20,21 +22,27 @@ const RAJKOT_RE = /rajkot|રાજકોટ|gondal|ગોંડલ|saurashtra|�
 export const TEMPLATE_IDS = ['news', 'story', 'mandi'];
 export const normTpl = (t?: string) => (TEMPLATE_IDS.includes(t || '') ? (t as string) : 'news');
 
-/** Auto-pick the brand template per story: mandi/price -> market-rate card, person-centric -> story card, else news card. */
-export function pickTemplate(it: any, sm: { person?: boolean; rates?: any[]; yard?: string }, hasImage: boolean, forced?: string) {
+/** Yards for which we hold REAL official rates (e.g. રાજકોટ). */
+export function officialYards(): string[] {
+  return (db().prepare("SELECT DISTINCT yard FROM mandi_rates WHERE sample=0 AND source<>''").all() as any[]).map((r) => r.yard);
+}
+const yardIn = (text: string, yards: string[]) => yards.find((y) => text.includes(y)) || '';
+
+/** Auto-pick the brand template per story: a price story for a yard we have OFFICIAL rates for -> market-rate card,
+ *  person-centric -> story card, else news card. Never shows rates of a different yard than the story's. */
+export function pickTemplate(it: any, sm: { person?: boolean; yard?: string }, hasImage: boolean, forced?: string) {
   if (forced && forced !== 'auto') return normTpl(forced);
-  // Real extracted rates → rate card. A mandi story without rates only uses the (SAMPLE) rate card when it has no photo.
-  if ((sm.rates && sm.rates.length >= 2) || (!hasImage && it.focus === 'agri' && /(યાર્ડ|apmc|એપીએમસી|mandi|મંડી|market yard)/i.test(it.title) && /(ભાવ|price|rate|આવક|arrival)/i.test(it.title))) return 'mandi';
+  const text = `${sm.yard || ''} ${it.title}`;
+  if (it.focus === 'agri' && /(યાર્ડ|apmc|એપીએમસી|mandi|મંડી|market yard)/i.test(text) && /(ભાવ|price|rate|આવક|arrival)/i.test(it.title) && yardIn(text, officialYards())) return 'mandi';
   if (sm.person && hasImage) return 'story';
   return 'news';
 }
 
+/** Rates for a mandi card: the story's own yard if we have official rates for it, else the latest official set. */
 export function ratesForPost(p: any): RateSet | null {
-  const d = db();
-  const own = d.prepare('SELECT yard, date, unit FROM mandi_rates WHERE item_id=? AND sample=0 LIMIT 1').get(p.item_id) as any;
-  if (own) return latestRates(p.ws_id, own.yard);
   const flags = JSON.parse(p.flags || '{}');
-  return (flags.yard && latestRates(p.ws_id, flags.yard)) || latestRates(p.ws_id);
+  const y = yardIn(`${flags.yard || ''} ${p.title || ''} ${p.headline || ''}`, officialYards());
+  return (y && latestRates(p.ws_id, y)) || latestRates(p.ws_id);
 }
 
 export async function frameDataForPost(p: any): Promise<FrameData> {
@@ -96,20 +104,16 @@ export async function createPostForItem(wsId: number, itemId: number, langOverri
   const lang = langOverride || ws.settings.language;
   const s = await summarize(it, lang, { provider: ws.settings.aiProvider, geminiModel: ws.settings.geminiModel, claudeModel: ws.settings.model }, wsId);
   const now = Date.now();
+  // Image everywhere: publisher photo (cached locally) else AI-generated from the story.
+  const img = await ensureItemImage(it, s.imagePrompt || fallbackScene(it.focus, s.category, `${s.headline} ${it.title}`));
+  if (img && img.via !== 'publisher' && img.via !== 'local') log(wsId, 'info', `Generated image (${img.via}) for "${s.headline.slice(0, 50)}"`);
   const hasImage = !!(await loadImageDataUri(it.image_url));
   const tpl = pickTemplate({ ...it, title: `${it.title} ${s.headline}` }, s, hasImage, ws.settings.template);
-  if (s.rates && s.rates.length >= 2) {
-    const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date(it.published_at));
-    d.prepare('DELETE FROM mandi_rates WHERE item_id=?').run(it.id);
-    const ins = d.prepare('INSERT INTO mandi_rates (ws_id, yard, date, commodity, min_price, max_price, unit, item_id, sample, created_at) VALUES (?,?,?,?,?,?,?,?,0,?)');
-    for (const r of s.rates.slice(0, 16)) ins.run(wsId, s.yard || ws.settings.location, day, r.commodity, r.min, r.max, '20 કિલો', it.id, now);
-    log(wsId, 'success', `Extracted ${s.rates.length} APMC rates (${s.yard || ws.settings.location}) from "${it.title.slice(0, 50)}"`);
-  }
-  const flags = JSON.stringify({ person: !!s.person, yard: s.yard || '' });
+  const flags = JSON.stringify({ person: !!s.person, yard: s.yard || '', imagePrompt: s.imagePrompt || '' });
   const status = ws.settings.autoApproveScore > 0 && s.score >= ws.settings.autoApproveScore ? 'approved' : 'pending';
   const existing = d.prepare('SELECT id, rev FROM posts WHERE item_id=?').get(itemId) as any;
   let postId: number;
-  const caption = brandCaption(ws.settings, s.headline, tpl, it, s.score, tpl === 'mandi' && s.yard && s.rates?.length ? `${s.yard} બજાર ભાવ` : '');
+  const caption = brandCaption(ws.settings, s.headline, tpl, it, s.score, tpl === 'mandi' && s.yard ? `${s.yard} બજાર ભાવ` : '');
   if (existing) {
     d.prepare(`UPDATE posts SET headline=?, summary=?, caption=?, keywords=?, hashtags=?, category=?, focus=?, score=?, lang=?, summarizer=?, model=?, template=?, flags=?, rev=rev+1, updated_at=? WHERE id=?`)
       .run(s.headline, s.summary, caption, JSON.stringify(s.keywords), JSON.stringify(s.hashtags), s.category, it.focus, s.score, lang, s.summarizer, s.model || null, tpl, flags, now, existing.id);
@@ -134,6 +138,7 @@ export async function runPipeline(wsId: number, trigger: 'schedule' | 'manual' |
   const runId = Number(run.lastInsertRowid);
   log(wsId, 'info', `Pipeline started (${trigger}) for "${ws?.name}"`);
   try {
+    await refreshRates().catch((e) => log(wsId, 'warn', `Mandi refresh failed: ${e.message}`));
     const f = await fetchSources(wsId);
     // Only new items; agriculture first, industry second, Rajkot boost, then newest.
     const limit = Math.max(1, Math.min(30, ws!.settings.maxPerRun || 10));
@@ -201,6 +206,8 @@ export async function runPipeline(wsId: number, trigger: 'schedule' | 'manual' |
     return { error: e.message };
   } finally {
     g.__gnsRunning.delete(wsId);
+    // Images everywhere: cache publisher photos / generate missing ones in the background (throttled).
+    backfillImages(wsId).catch((e) => log(wsId, 'warn', `Image backfill failed: ${e.message}`));
   }
 }
 

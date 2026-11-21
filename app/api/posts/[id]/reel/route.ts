@@ -1,9 +1,8 @@
 import { guard } from '@/lib/auth';
 import { db, DATA_DIR, log } from '@/lib/db';
 import { postWithItem, renderReelPng } from '@/lib/pipeline';
-import { loadImageDataUri } from '@/lib/media';
+import { loadImageDataUri, mediaFile } from '@/lib/media';
 import { REEL_BAND } from '@/lib/render';
-import { sha } from '@/lib/fetcher';
 import fs from 'fs';
 import path from 'path';
 import { execFile } from 'child_process';
@@ -25,7 +24,7 @@ export async function POST(_: Request, { params }: P) {
   const out = path.join(dir, `${p.id}-${p.rev}-reel.mp4`);
   if (!fs.existsSync(out)) {
     const hasPhoto = !!(await loadImageDataUri(p.image_url));
-    const photo = path.join(DATA_DIR, 'media', sha(p.image_url || '') + '.jpg');
+    const photo = mediaFile(p.image_url || '');
     const { top, height } = REEL_BAND;
     if (hasPhoto && fs.existsSync(photo)) {
       const overlay = path.join(dir, `${p.id}-${p.rev}-reel-overlay.png`);

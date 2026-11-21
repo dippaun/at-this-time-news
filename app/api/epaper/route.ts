@@ -9,10 +9,10 @@ export async function GET(req: Request) {
   const ws = getWorkspace(Number(u.searchParams.get('ws'))) || listWorkspaces()[0];
   const rows = db().prepare(`SELECT p.headline, p.summary, p.category, i.image_url FROM posts p JOIN items i ON i.id=p.item_id
     WHERE p.ws_id=? AND p.status != 'rejected' AND p.template != 'mandi' AND p.created_at > ?
-    ORDER BY CASE p.focus WHEN 'agri' THEN 0 WHEN 'industry' THEN 1 ELSE 2 END, p.score DESC, p.created_at DESC LIMIT 6`).all(ws.id, Date.now() - 36 * 3600e3) as any[];
+    ORDER BY (i.image_url LIKE '/api/media/%') DESC, CASE p.focus WHEN 'agri' THEN 0 WHEN 'industry' THEN 1 ELSE 2 END, p.score DESC, p.created_at DESC LIMIT 6`).all(ws.id, Date.now() - 36 * 3600e3) as any[];
   const li = rows.findIndex((r) => r.image_url && !/news\.google\./.test(r.image_url));
   if (li > 0) rows.unshift(...rows.splice(li, 1));
-  const stories = await Promise.all(rows.map(async (r, i) => ({ headline: r.headline, summary: r.summary, category: r.category, image: i < 3 ? await loadImageDataUri(r.image_url) : null })));
+  const stories = await Promise.all(rows.map(async (r, i) => ({ headline: r.headline, summary: r.summary, category: r.category, image: await loadImageDataUri(r.image_url) })));
   try {
     const png = await renderEpaper(ws.settings, stories, Date.now());
     const h: Record<string, string> = { 'content-type': 'image/png', 'cache-control': 'public, max-age=120' };

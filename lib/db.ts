@@ -88,6 +88,13 @@ function init(db: Database.Database) {
   const cols = (db.prepare('PRAGMA table_info(posts)').all() as any[]).map((c) => c.name);
   if (!cols.includes('reporter')) db.exec("ALTER TABLE posts ADD COLUMN reporter TEXT DEFAULT ''");
   if (!cols.includes('flags')) db.exec("ALTER TABLE posts ADD COLUMN flags TEXT DEFAULT '{}'");
+  const icols = (db.prepare('PRAGMA table_info(items)').all() as any[]).map((c) => c.name);
+  for (const [c, t] of [['image_orig', "TEXT DEFAULT ''"], ['image_src', "TEXT DEFAULT ''"], ['image_prompt', "TEXT DEFAULT ''"], ['image_fail', 'INTEGER DEFAULT 0']]) if (!icols.includes(c)) db.exec(`ALTER TABLE items ADD COLUMN ${c} ${t}`);
+  const rcols = (db.prepare('PRAGMA table_info(mandi_rates)').all() as any[]).map((c) => c.name);
+  if (!rcols.includes('source')) db.exec("ALTER TABLE mandi_rates ADD COLUMN source TEXT DEFAULT ''");
+  if (!rcols.includes('arrival')) db.exec("ALTER TABLE mandi_rates ADD COLUMN arrival TEXT DEFAULT ''");
+  // No sample data: drop any legacy demo rows and AI-extracted (unverified) rates.
+  db.exec("DELETE FROM mandi_rates WHERE sample=1 OR source IS NULL OR source=''");
   seed(db);
 }
 
@@ -98,7 +105,6 @@ function seed(db: Database.Database) {
       .run('Gujarat News', 'gujarat-news', JSON.stringify(DEFAULT_SETTINGS), Date.now());
     addDefaultSources(db, Number(ws.lastInsertRowid));
   }
-  seedSampleRates(db);
   const u = db.prepare('SELECT COUNT(*) c FROM users').get() as any;
   if (u.c === 0) {
     const ins = db.prepare('INSERT INTO users (email, name, password_hash, role, created_at) VALUES (?,?,?,?,?)');
@@ -166,25 +172,14 @@ export function log(wsId: number | null, level: 'info' | 'warn' | 'error' | 'suc
   console.log(`[${new Date().toISOString()}] [ws ${wsId}] ${level.toUpperCase()} ${msg}`);
 }
 
-/** Example APMC rates (clearly flagged sample=1) so the market-rate card works before real data is extracted. */
-export function seedSampleRates(db: Database.Database) {
-  const wsIds = (db.prepare('SELECT id FROM workspaces').all() as any[]).map((w) => w.id);
-  const rows: [string, number, number][] = [['કપાસ', 1420, 1655], ['મગફળી (જાડી)', 1050, 1325], ['મગફળી (જીણી)', 1080, 1290], ['જીરું', 3850, 4460], ['ઘઉં', 482, 560], ['ચણા', 1040, 1210], ['તલ', 2120, 2510], ['ડુંગળી', 200, 800], ['લસણ', 900, 1820], ['એરંડા', 1180, 1242], ['સોયાબીન', 820, 905], ['બાજરી', 420, 525], ['મગ', 1310, 1660], ['અડદ', 1150, 1480]];
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
-  for (const id of wsIds) {
-    const has = db.prepare('SELECT 1 FROM mandi_rates WHERE ws_id=? LIMIT 1').get(id);
-    if (has) continue;
-    const ins = db.prepare('INSERT INTO mandi_rates (ws_id, yard, date, commodity, min_price, max_price, unit, sample, created_at) VALUES (?,?,?,?,?,?,?,1,?)');
-    for (const [c, a, b] of rows) ins.run(id, 'જસદણ', today, c, a, b, '20 કિલો', Date.now());
-  }
-}
-
-export type RateSet = { yard: string; date: string; unit: string; sample: boolean; rows: { commodity: string; min: number; max: number }[] };
+export type RateSet = { yard: string; date: string; unit: string; source: string; sourceUrl: string; rows: { commodity: string; min: number; max: number; arrival?: string }[] };
+/** Latest REAL official APMC rates (never sample). Prefers the requested yard, else the newest available. */
 export function latestRates(wsId: number, yard?: string): RateSet | null {
   const d = db();
-  const pick = (sample: number) => d.prepare(`SELECT yard, date FROM mandi_rates WHERE ws_id=? AND sample=? ${yard ? 'AND yard=?' : ''} ORDER BY date DESC, id DESC LIMIT 1`).get(...[wsId, sample, ...(yard ? [yard] : [])]) as any;
-  const head = pick(0) || pick(1);
+  const q = (y?: string) => d.prepare(`SELECT yard, date, source FROM mandi_rates WHERE ws_id=? AND sample=0 AND source<>'' ${y ? 'AND yard=?' : ''} ORDER BY CASE yard WHEN 'રાજકોટ' THEN 0 ELSE 1 END, date DESC, id DESC LIMIT 1`).get(...[wsId, ...(y ? [y] : [])]) as any;
+  const head = (yard && q(yard)) || q();
   if (!head) return null;
-  const rows = d.prepare('SELECT commodity, min_price, max_price, unit, sample FROM mandi_rates WHERE ws_id=? AND yard=? AND date=? ORDER BY sample, id LIMIT 16').all(wsId, head.yard, head.date) as any[];
-  return { yard: head.yard, date: head.date, unit: rows[0]?.unit || '20 કિલો', sample: !!rows[0]?.sample, rows: rows.map((r) => ({ commodity: r.commodity, min: r.min_price, max: r.max_price })) };
+  const rows = d.prepare('SELECT commodity, min_price, max_price, unit, arrival FROM mandi_rates WHERE ws_id=? AND yard=? AND date=? AND source=? ORDER BY id LIMIT 40').all(wsId, head.yard, head.date, head.source) as any[];
+  const src = String(head.source || '');
+  return { yard: head.yard, date: head.date, unit: rows[0]?.unit || '20 કિલો', source: src.split('|')[0], sourceUrl: src.split('|')[1] || '', rows: rows.map((r) => ({ commodity: r.commodity, min: r.min_price, max: r.max_price, arrival: r.arrival || '' })) };
 }

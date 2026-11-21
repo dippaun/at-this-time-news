@@ -110,3 +110,7 @@ A Cloudflare *quick* tunnel (what the demo uses) is free but its URL changes whe
 3. Store a long-lived token per workspace and implement `lib/instagram.ts`: `POST /{ig-user-id}/media` with `image_url` (our public `/api/frame/:id` PNG) + `caption`, then `POST /{ig-user-id}/media_publish`. Reels use `media_type=REELS` + `video_url`.
 4. Respect the ~50 posts/24h API limit: post the best story every 30–60 minutes and move the rest to Stories or a carousel digest.
 5. Add scheduling slots, auto-publish for approved posts above a score threshold, and insights back into the dashboard.
+
+## Real mandi rates & images everywhere (no sample data)
+- **Mandi rates** (`lib/mandi.ts`): official **Rajkot APMC daily rates** (`apmcrajkot.com`, ₹ per 20 kg, arrivals in quintals) refreshed at boot and every `MANDI_REFRESH_HOURS` (default 3). Optional extra Saurashtra yards (Jasdan, Gondal, Morbi, …) from **Agmarknet via data.gov.in** (₹/quintal ÷ 5) when `DATA_GOV_API_KEY` (or the public key) is not rate-limited. If a day has no data the latest real date is shown. No seeded/sample rates exist anymore; the widget shows market, arrival date and source.
+- **Images** (`lib/imagegen.ts`): publisher photo (cached locally) → Gemini image generation (if the key has image quota) → Pollinations.ai (free) → branded gradient as last resort. One image per story, cached at `data/media/gen-<id>.jpg` and served from `/api/media/<file>`; backfilled in the background (`IMAGE_BACKFILL_PER_RUN`, default 20). The portal lists only stories with a verified image.

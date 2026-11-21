@@ -4,7 +4,7 @@ export type Provider = 'gemini' | 'claude' | 'extractive';
 export type Summary = {
   headline: string; summary: string; keywords: string[]; hashtags: string[]; category: string; score: number; caption: string;
   summarizer: Provider; model?: string;
-  person?: boolean; yard?: string; rates?: { commodity: string; min: number; max: number }[];
+  person?: boolean; yard?: string; imagePrompt?: string; rates?: { commodity: string; min: number; max: number }[];
 };
 type In = { title: string; description: string; publisher: string; focus: string; category: string; priority: number; published_at: number; lang: string };
 export type AiConfig = { provider: 'auto' | Provider; geminiModel: string; claudeModel: string };
@@ -68,7 +68,8 @@ Return ONLY a JSON object with keys:
 "caption": 1-2 line Gujarati caption that restates the headline (no emojis, no hashtags, no call to action),
 "person": true if the story is mainly about one named person (appointment, award, achievement, obituary, profile), else false,
 "yard": ONLY the short APMC / market-yard name in Gujarati (max 4 words, e.g. "ગોંડલ યાર્ડ") if the story is about a specific yard, otherwise exactly "" (empty string, no explanation),
-"rates": ONLY if the story text explicitly lists commodity prices: array of {"commodity" (Gujarati name), "min" (number, price per 20 kg), "max" (number, price per 20 kg)}; otherwise []. Never guess numbers.`;
+"rates": ONLY if the story text explicitly lists commodity prices: array of {"commodity" (Gujarati name), "min" (number, price per 20 kg), "max" (number, price per 20 kg)}; otherwise []. Never guess numbers,
+"image_prompt": ONE English sentence (max 30 words) describing a realistic, news-appropriate photograph that illustrates this story in Gujarat, India (scene, setting, objects, light). No text, no signs, no logos, no brand names, no identifiable faces (people only from behind or far away).`;
 }
 
 function toSummary(o: any, it: In, provider: Provider, model: string): Summary {
@@ -84,6 +85,7 @@ function toSummary(o: any, it: In, provider: Provider, model: string): Summary {
     caption: String(o.caption || '').trim(),
     person: !!o.person,
     yard: cleanYard(o.yard),
+    imagePrompt: String(o.image_prompt || '').replace(/\s+/g, ' ').trim().slice(0, 300),
     rates: Array.isArray(o.rates) ? o.rates.filter((r: any) => r && r.commodity && Number(r.max) > 0).map((r: any) => ({ commodity: String(r.commodity), min: Number(r.min) || 0, max: Number(r.max) })) : [],
     summarizer: provider,
     model,
@@ -95,7 +97,7 @@ class AiError extends Error { constructor(msg: string, public status: number, pu
 
 // ---- Gemini (free tier) with a global throttle ----
 const g = globalThis as any;
-async function throttleGemini() {
+export async function throttleGemini() {
   const wait = (g.__gnsGeminiLast || 0) + GEMINI_MIN_GAP_MS - Date.now();
   g.__gnsGeminiLast = Date.now() + Math.max(0, wait);
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
@@ -107,13 +109,13 @@ async function geminiCall(model: string, prompt: string) {
     method: 'POST',
     headers: { 'x-goog-api-key': KEY.gemini as string, 'content-type': 'application/json' },
     body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: {
-      responseMimeType: 'application/json', temperature: 0.3, maxOutputTokens: 1200,
+      responseMimeType: 'application/json', temperature: 0.3, maxOutputTokens: 1500,
       responseSchema: {
-        type: 'OBJECT', required: ['headline', 'summary', 'keywords', 'hashtags', 'category', 'score', 'caption'],
+        type: 'OBJECT', required: ['headline', 'summary', 'keywords', 'hashtags', 'category', 'score', 'caption', 'image_prompt'],
         properties: {
           headline: { type: 'STRING' }, summary: { type: 'STRING' }, caption: { type: 'STRING' }, category: { type: 'STRING' },
           keywords: { type: 'ARRAY', items: { type: 'STRING' } }, hashtags: { type: 'ARRAY', items: { type: 'STRING' } }, score: { type: 'INTEGER' },
-          person: { type: 'BOOLEAN' }, yard: { type: 'STRING' },
+          person: { type: 'BOOLEAN' }, yard: { type: 'STRING' }, image_prompt: { type: 'STRING' },
           rates: { type: 'ARRAY', items: { type: 'OBJECT', properties: { commodity: { type: 'STRING' }, min: { type: 'NUMBER' }, max: { type: 'NUMBER' } } } },
         },
       },
