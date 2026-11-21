@@ -1,0 +1,23 @@
+# Example: trigger the pipeline every 5 minutes from GitHub Actions (useful when the host sleeps,
+# e.g. free tiers, or when FETCH_INTERVAL_MINUTES=0). Set repo secrets APP_URL and CRON_SECRET.
+# GitHub may delay scheduled runs by a few minutes; that is fine for a news feed.
+name: news-cron
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      APP_URL: ${{ secrets.APP_URL }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Skip when not configured
+        if: env.APP_URL == '' || env.CRON_SECRET == ''
+        run: echo "APP_URL / CRON_SECRET secrets not set - skipping."
+      - name: Call /api/cron
+        if: env.APP_URL != '' && env.CRON_SECRET != ''
+        run: |
+          curl -fsS -m 300 -X POST "$APP_URL/api/cron" -H "Authorization: Bearer $CRON_SECRET"
