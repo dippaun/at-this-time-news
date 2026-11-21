@@ -1,10 +1,12 @@
 # Example: trigger the pipeline every 5 minutes from GitHub Actions (useful when the host sleeps,
 # e.g. free tiers, or when FETCH_INTERVAL_MINUTES=0). Set repo secrets APP_URL and CRON_SECRET.
 # GitHub may delay scheduled runs by a few minutes; that is fine for a news feed.
+# The schedule is commented out so it does not burn Actions minutes until you host the app:
+# uncomment it after setting the secrets.
 name: news-cron
 on:
-  schedule:
-    - cron: '*/5 * * * *'
+  # schedule:
+  #   - cron: '*/5 * * * *'
   workflow_dispatch:
 jobs:
   trigger:
