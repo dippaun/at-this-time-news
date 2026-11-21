@@ -1,0 +1,67 @@
+# Free public live demo: runs the production app on a GitHub-hosted runner and exposes it with a
+# Cloudflare quick tunnel (https://*.trycloudflare.com). The URL is written to the job summary and
+# to the `live-url` branch (file URL.txt). A run lasts up to ~5.5 hours; re-run the workflow for a new link.
+# Optional repo secret: ANTHROPIC_API_KEY (without it the extractive summariser is used).
+name: live-demo
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: 'How long to keep the demo online (max 340)'
+        default: '330'
+concurrency: { group: live-demo, cancel-in-progress: true }
+permissions:
+  contents: write
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      ANTHROPIC_MODEL: claude-haiku-4-5-20251001
+      FETCH_INTERVAL_MINUTES: '5'
+      MAX_ITEMS_PER_RUN: '10'
+      PORT: '3000'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - name: Install ffmpeg
+        run: (command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)) >/dev/null
+      - run: npm ci
+      - run: npm run build
+      - name: Start app + Cloudflare quick tunnel
+        run: |
+          mkdir -p logs
+          export CRON_SECRET=$(openssl rand -hex 16)
+          nohup scripts/run-forever.sh > logs/supervisor.log 2>&1 &
+          curl -sL -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 || sudo curl -sL -o /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          sudo chmod +x /usr/local/bin/cloudflared
+          TUNNEL_PROTOCOL=quic nohup scripts/tunnel-forever.sh > logs/tunnel.log 2>&1 &
+          for i in $(seq 1 60); do URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' logs/tunnel.log | head -1); [ -n "$URL" ] && break; sleep 2; done
+          echo "URL=$URL" >> $GITHUB_ENV
+          echo "Public URL: $URL"
+      - name: Wait for first pipeline run
+        run: |
+          for i in $(seq 1 90); do grep -q "Pipeline finished" logs/app.log && break; sleep 2; done
+          tail -5 logs/app.log
+          for i in $(seq 1 30); do curl -sf -o /dev/null "$URL/login" && break; sleep 3; done
+          curl -s -o /dev/null -w "public /login -> %{http_code}\n" "$URL/login"
+          curl -s -o /dev/null -w "public /api/frame/1 -> %{http_code} %{content_type}\n" "$URL/api/frame/1"
+      - name: Publish URL
+        run: |
+          echo "## 🌾 Gujarat News Studio is live" >> $GITHUB_STEP_SUMMARY
+          echo "**$URL** (login: admin@demo.com / demo1234)" >> $GITHUB_STEP_SUMMARY
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan live-url-tmp && git rm -rfq . && printf '%s\n' "$URL" "started: $(date -u +%FT%TZ)" > URL.txt
+          git add URL.txt && git commit -qm "Live demo URL" && git push -fq origin HEAD:live-url
+      - name: Keep online
+        run: |
+          END=$(( $(date +%s) + ${{ inputs.minutes || 330 }} * 60 ))
+          while [ $(date +%s) -lt $END ]; do
+            sleep 300
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$URL/login"); echo "$(date -u +%T) health $code"; tail -1 logs/app.log
+          done
+      - name: Logs
+        if: always()
+        run: tail -50 logs/app.log logs/tunnel.log || true
