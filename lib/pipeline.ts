@@ -67,7 +67,7 @@ export async function renderReelPng(postId: number, transparentBand = false) {
 /** Brand caption: Gujarati headline (1-2 lines) + 3-4 hashtags incl. #atthistime #viralpost + topic tag. No emojis, no source. */
 export function brandCaption(s: WorkspaceSettings, headline: string, tpl: string, it: any, score: number, extra?: string) {
   const fresh = Date.now() - it.published_at < 3 * 3600e3;
-  const topic = tpl === 'mandi' ? '#APMC' : fresh && score >= 8 ? '#BreakingNews' : '#NewsUpdate';
+  const topic = tpl === 'mandi' || /(યાર્ડ|apmc|એપીએમસી|મંડી)/i.test(headline) ? '#APMC' : fresh && score >= 8 ? '#BreakingNews' : '#NewsUpdate';
   const tags = ['#atthistime', '#viralpost', topic];
   if (tpl === 'mandi') tags.push('#apmc_rate');
   else if (/rajkot|રાજકોટ/i.test(it.title)) tags.push('#Rajkot');
@@ -96,7 +96,7 @@ export async function createPostForItem(wsId: number, itemId: number, langOverri
   const s = await summarize(it, lang, { provider: ws.settings.aiProvider, geminiModel: ws.settings.geminiModel, claudeModel: ws.settings.model }, wsId);
   const now = Date.now();
   const hasImage = !!(await loadImageDataUri(it.image_url));
-  const tpl = pickTemplate(it, s, hasImage, ws.settings.template);
+  const tpl = pickTemplate({ ...it, title: `${it.title} ${s.headline}` }, s, hasImage, ws.settings.template);
   if (s.rates && s.rates.length >= 2) {
     const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date(it.published_at));
     d.prepare('DELETE FROM mandi_rates WHERE item_id=?').run(it.id);
