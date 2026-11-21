@@ -44,7 +44,7 @@ jobs:
       - name: Wait for first pipeline run
         run: |
           for i in $(seq 1 90); do grep -q "Pipeline finished" logs/app.log && break; sleep 2; done
-          tail -5 logs/app.log
+          tail -n 5 logs/app.log
           for i in $(seq 1 30); do curl -sf -o /dev/null "$URL/login" && break; sleep 3; done
           curl -s -o /dev/null -w "public /login -> %{http_code}\n" "$URL/login"
           curl -s -o /dev/null -w "public /api/frame/1 -> %{http_code} %{content_type}\n" "$URL/api/frame/1"
@@ -53,15 +53,17 @@ jobs:
           echo "## 🌾 Gujarat News Studio is live" >> $GITHUB_STEP_SUMMARY
           echo "**$URL** (login: admin@demo.com / demo1234)" >> $GITHUB_STEP_SUMMARY
           git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout --orphan live-url-tmp && git rm -rfq . && printf '%s\n' "$URL" "started: $(date -u +%FT%TZ)" > URL.txt
+          # Use a separate worktree so the running app's files are untouched
+          git worktree add -q --detach /tmp/pub && cd /tmp/pub
+          git checkout -q --orphan live-url-tmp && git rm -rfq . && printf '%s\n' "$URL" "started: $(date -u +%FT%TZ)" > URL.txt
           git add URL.txt && git commit -qm "Live demo URL" && git push -fq origin HEAD:live-url
       - name: Keep online
         run: |
           END=$(( $(date +%s) + ${{ inputs.minutes || 330 }} * 60 ))
           while [ $(date +%s) -lt $END ]; do
             sleep 300
-            code=$(curl -s -o /dev/null -w "%{http_code}" "$URL/login"); echo "$(date -u +%T) health $code"; tail -1 logs/app.log
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$URL/login"); echo "$(date -u +%T) health $code"; tail -n 1 logs/app.log
           done
       - name: Logs
         if: always()
-        run: tail -50 logs/app.log logs/tunnel.log || true
+        run: for f in logs/app.log logs/tunnel.log; do echo "== $f"; tail -n 60 "$f"; done || true
