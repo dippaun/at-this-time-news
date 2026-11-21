@@ -23,7 +23,8 @@ export const normTpl = (t?: string) => (TEMPLATE_IDS.includes(t || '') ? (t as s
 /** Auto-pick the brand template per story: mandi/price -> market-rate card, person-centric -> story card, else news card. */
 export function pickTemplate(it: any, sm: { person?: boolean; rates?: any[]; yard?: string }, hasImage: boolean, forced?: string) {
   if (forced && forced !== 'auto') return normTpl(forced);
-  if ((sm.rates && sm.rates.length >= 2) || (it.focus === 'agri' && /(યાર્ડ|apmc|એપીએમસી|mandi|મંડી|market yard)/i.test(it.title) && /(ભાવ|price|rate|આવક|arrival)/i.test(it.title))) return 'mandi';
+  // Real extracted rates → rate card. A mandi story without rates only uses the (SAMPLE) rate card when it has no photo.
+  if ((sm.rates && sm.rates.length >= 2) || (!hasImage && it.focus === 'agri' && /(યાર્ડ|apmc|એપીએમસી|mandi|મંડી|market yard)/i.test(it.title) && /(ભાવ|price|rate|આવક|arrival)/i.test(it.title))) return 'mandi';
   if (sm.person && hasImage) return 'story';
   return 'news';
 }
@@ -108,7 +109,7 @@ export async function createPostForItem(wsId: number, itemId: number, langOverri
   const status = ws.settings.autoApproveScore > 0 && s.score >= ws.settings.autoApproveScore ? 'approved' : 'pending';
   const existing = d.prepare('SELECT id, rev FROM posts WHERE item_id=?').get(itemId) as any;
   let postId: number;
-  const caption = brandCaption(ws.settings, s.headline, tpl, it, s.score, tpl === 'mandi' ? `${s.yard || ws.settings.location} બજાર ભાવ` : '');
+  const caption = brandCaption(ws.settings, s.headline, tpl, it, s.score, tpl === 'mandi' && s.yard && s.rates?.length ? `${s.yard} બજાર ભાવ` : '');
   if (existing) {
     d.prepare(`UPDATE posts SET headline=?, summary=?, caption=?, keywords=?, hashtags=?, category=?, focus=?, score=?, lang=?, summarizer=?, model=?, template=?, flags=?, rev=rev+1, updated_at=? WHERE id=?`)
       .run(s.headline, s.summary, caption, JSON.stringify(s.keywords), JSON.stringify(s.hashtags), s.category, it.focus, s.score, lang, s.summarizer, s.model || null, tpl, flags, now, existing.id);
