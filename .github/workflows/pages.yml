@@ -70,20 +70,7 @@ jobs:
           pkill -f "next start" || true; pkill -f next-server || true; sleep 2
           tail -n 25 app.log || true
           [ -f data/app.db ] || exit 0
-          node -e "
-            const D=require('better-sqlite3');const d=new D('data/app.db');
-            const old=Date.now()-14*86400e3;
-            d.prepare('DELETE FROM items WHERE published_at<? AND id NOT IN (SELECT item_id FROM posts WHERE item_id IS NOT NULL)').run(old);
-            d.prepare('DELETE FROM posts WHERE created_at<?').run(Date.now()-30*86400e3);
-            d.prepare('DELETE FROM activity WHERE ts<?').run(Date.now()-5*86400e3);
-            d.prepare('DELETE FROM runs WHERE started_at<?').run(Date.now()-5*86400e3);
-            d.prepare("DELETE FROM kv WHERE k='auth_secret'").run();
-            d.pragma('wal_checkpoint(TRUNCATE)'); d.exec('VACUUM'); d.close();"
-          # drop media files no longer referenced
-          node -e "
-            const fs=require('fs');const D=require('better-sqlite3');const d=new D('data/app.db',{readonly:true});
-            const keep=new Set(d.prepare(\"SELECT image_url u FROM items WHERE image_url LIKE '/api/media/%'\").all().map(r=>r.u.split('/').pop()));
-            let n=0;for(const f of fs.readdirSync('data/media')) if(!keep.has(f)){fs.rmSync('data/media/'+f);n++;} console.log('pruned media',n,'kept',keep.size);"
+          node scripts/state-compact.cjs
           mkdir -p /tmp/state && cp data/app.db /tmp/state/ && cd /tmp/state && git init -q && git checkout -q -b data
           git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           printf 'Pipeline state for the GitHub Pages build (SQLite: fetched items, summaries, image refs). Public news data only; no secrets.\n' > README.md
