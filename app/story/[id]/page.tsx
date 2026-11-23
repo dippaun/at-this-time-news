@@ -65,10 +65,10 @@ export default async function StoryPage({ params }: P) {
           {s.post_id ? (
             <div className="overflow-hidden rounded-3xl border bg-card shadow-soft">
               <div className="flex items-center justify-between p-4"><div className="flex items-center gap-2 text-sm font-semibold"><Instagram className="size-4 text-pink-500" />Instagram post</div><Badge tone="brand">4:5</Badge></div>
-              <img src={frameUrl(s.post_id, s.rev)} alt="" className="w-full border-y" loading="lazy" />
+              <img src={frameUrl(s.post_id, s.rev, 'post', s.updated_at)} alt="" className="w-full border-y" loading="lazy" />
               <div className="flex gap-2 p-4">
-                <a href={frameUrl(s.post_id, s.rev, 'download')} download className={buttonClass('outline', 'sm', 'flex-1')}><Download />{STATIC ? 'Image' : 'PNG'}</a>
-                <a href={frameUrl(s.post_id, s.rev, 'reel')} target="_blank" className={buttonClass('outline', 'sm', 'flex-1')}>Reel 9:16</a>
+                <a href={frameUrl(s.post_id, s.rev, 'download', s.updated_at)} download className={buttonClass('outline', 'sm', 'flex-1')}><Download />{STATIC ? 'Image' : 'PNG'}</a>
+                <a href={frameUrl(s.post_id, s.rev, 'reel', s.updated_at)} target="_blank" className={buttonClass('outline', 'sm', 'flex-1')}>Reel 9:16</a>
               </div>
             </div>
           ) : null}

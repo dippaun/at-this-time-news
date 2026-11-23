@@ -10,7 +10,7 @@ import fs from 'fs';
 import path from 'path';
 import { db, kvGet, kvSet, log } from './db';
 import { MEDIA_DIR, LOCAL_PREFIX, ensureMedia, isLocal, writeJpeg } from './media';
-import { fetchWithTimeout } from './fetcher';
+import { fetchWithTimeout, sha } from './fetcher';
 import { throttleGemini, GEMINI_DEFAULT } from './summarize';
 
 const g = globalThis as any;
@@ -111,8 +111,9 @@ async function pollinations(prompt: string, seed: number): Promise<Buffer | null
 }
 
 /** Generate (once) an illustrative image for a story. Returns the local URL or null. */
-export async function generateImage(itemId: number, prompt: string): Promise<{ url: string; via: string } | null> {
-  const file = `gen-${itemId}.jpg`;
+export async function generateImage(itemId: number, prompt: string, title = ''): Promise<{ url: string; via: string } | null> {
+  // Name includes a hash of the story title so a reset DB (reused ids) can never pick up another story's image.
+  const file = `gen-${itemId}-${sha(title || prompt).slice(0, 10)}.jpg`;
   const out = path.join(MEDIA_DIR, file);
   if (fs.existsSync(out) && fs.statSync(out).size > 2000) return { url: LOCAL_PREFIX + file, via: 'cache' };
   const gem = await geminiImage(prompt);
@@ -123,7 +124,7 @@ export async function generateImage(itemId: number, prompt: string): Promise<{ u
 }
 
 /** Ensure the item has a verified local image (publisher first, else generated). Updates items.image_url. */
-export async function ensureItemImage(it: { id: number; image_url?: string; ws_id?: number }, prompt: string): Promise<{ url: string; via: string } | null> {
+export async function ensureItemImage(it: { id: number; image_url?: string; ws_id?: number; title?: string }, prompt: string): Promise<{ url: string; via: string } | null> {
   const d = db();
   if (isLocal(it.image_url) && (await ensureMedia(it.image_url!))) return { url: it.image_url!, via: 'local' };
   if (it.image_url && !/news\.google\./.test(it.image_url)) {
@@ -135,7 +136,7 @@ export async function ensureItemImage(it: { id: number; image_url?: string; ws_i
       return { url, via: 'publisher' };
     }
   }
-  const gen = await generateImage(it.id, prompt);
+  const gen = await generateImage(it.id, prompt, it.title || '');
   if (!gen) return null;
   d.prepare('UPDATE items SET image_orig=COALESCE(NULLIF(image_orig,\'\'), image_url), image_url=?, image_src=?, image_prompt=? WHERE id=?')
     .run(gen.url, gen.via === 'cache' ? (d.prepare('SELECT image_src FROM items WHERE id=?').get(it.id) as any)?.image_src || 'generated' : gen.via, prompt, it.id);

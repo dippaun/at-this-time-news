@@ -63,7 +63,7 @@ export const fmtTime = (ts: number) => new Intl.DateTimeFormat('en-IN', { timeZo
 // ---------- Portal (public) ----------
 export type Story = {
   id: number; post_id: number | null; title: string; summary: string; image_url: string | null; publisher: string; link: string;
-  published_at: number; focus: string; category: string; score: number | null; lang: string; keywords: string | null; template: string | null; rev: number | null;
+  published_at: number; focus: string; category: string; score: number | null; lang: string; keywords: string | null; template: string | null; rev: number | null; updated_at?: number | null;
 };
 export const CITIES: { key: string; en: string; gu: string }[] = [
   { key: 'rajkot', en: 'Rajkot', gu: 'રાજકોટ' }, { key: 'gondal', en: 'Gondal', gu: 'ગોંડલ' }, { key: 'jasdan', en: 'Jasdan', gu: 'જસદણ' },
@@ -74,7 +74,7 @@ export const CITIES: { key: string; en: string; gu: string }[] = [
 /** Portal shows only stories with a verified local image (publisher photo cached or AI-generated). */
 const HAS_IMG = "i.image_url LIKE '/api/media/%'";
 const STORY_SELECT = `SELECT i.id, p.id post_id, COALESCE(p.headline, i.title) title, COALESCE(NULLIF(p.summary,''), i.description, '') summary, i.image_url, i.publisher, i.link,
-  i.published_at, i.focus, COALESCE(p.category, i.category) category, p.score, COALESCE(p.lang, i.lang) lang, p.keywords, p.template, p.rev
+  i.published_at, i.focus, COALESCE(p.category, i.category) category, p.score, COALESCE(p.lang, i.lang) lang, p.keywords, p.template, p.rev, p.updated_at
   FROM items i LEFT JOIN posts p ON p.item_id=i.id AND p.status != 'rejected'`;
 
 export function portalFeed(wsId: number, o: { focus?: string; city?: string; q?: string; limit?: number; days?: number } = {}): Story[] {

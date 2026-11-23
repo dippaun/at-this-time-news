@@ -53,7 +53,7 @@ for (const u of assets) {
       const f = path.join(DATA, 'media', path.basename(u));
       if (fs.existsSync(f)) { write(u, fs.readFileSync(f)); ok++; } else miss++;
     } else if (u.startsWith('/frames/')) {
-      const m = u.match(/\/frames\/(\d+)-(\d+)(-reel)?\.jpg$/);
+      const m = u.match(/\/frames\/(\d+)-(\d+)-[a-z0-9]+(-reel)?\.jpg$/);
       if (!m) continue;
       const cached = path.join(FRAME_CACHE, path.basename(u));
       keepFrames.add(path.basename(u));
