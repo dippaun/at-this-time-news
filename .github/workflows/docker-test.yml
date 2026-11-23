@@ -1,0 +1,21 @@
+# Builds the production Docker image and smoke-tests it (health + portal). Manual trigger only (saves Actions minutes).
+name: docker-test
+on: { workflow_dispatch: {} }
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t atn .
+      - name: Run container (memory capped like a 512 MB free instance)
+        run: |
+          docker run -d --name atn -m 512m -p 10000:10000 -e PORT=10000 -e GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" atn
+          for i in $(seq 1 60); do curl -sf localhost:10000/api/health && break; sleep 3; done; echo
+          for i in $(seq 1 60); do s=$(curl -s localhost:10000/api/health); echo "$s"; echo "$s" | grep -q '"withImage":[1-9]' && break; sleep 10; done
+          curl -s -o /dev/null -w "portal %{http_code}\n" localhost:10000/
+          curl -s -o /dev/null -w "frame %{http_code} %{content_type}\n" localhost:10000/api/frame/1
+          curl -s -o /dev/null -w "epaper %{http_code}\n" localhost:10000/api/epaper
+          docker stats --no-stream atn
+      - if: always()
+        run: docker logs atn 2>&1 | tail -60

@@ -15,5 +15,13 @@ export function startScheduler() {
   };
   g.__gnsScheduler = cron.schedule(`*/${mins} * * * *`, () => { tick('schedule').catch((e) => console.error(e)); });
   log(null, 'info', `In-app scheduler started: every ${mins} min`);
+  // Free hosts (e.g. Render) sleep after ~15 min without inbound traffic. Ping our own public URL so the
+  // scheduler keeps running. Render sets RENDER_EXTERNAL_URL automatically; elsewhere set KEEPALIVE_URL.
+  const self = process.env.KEEPALIVE_URL || process.env.RENDER_EXTERNAL_URL;
+  if (self && process.env.KEEPALIVE !== '0') {
+    const ping = () => fetch(`${self.replace(/\/$/, '')}/api/health`, { cache: 'no-store' }).catch(() => {});
+    g.__gnsKeepAlive = setInterval(ping, Number(process.env.KEEPALIVE_MINUTES || 10) * 60e3);
+    log(null, 'info', `Keep-alive ping every ${process.env.KEEPALIVE_MINUTES || 10} min`);
+  }
   setTimeout(() => scrubExistingPosts().catch((e) => console.error(e)).then(() => tick('boot')).catch((e) => console.error(e)), 8000);
 }

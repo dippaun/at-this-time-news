@@ -1,0 +1,23 @@
+# Render Blueprint (free web service, no credit card): Dashboard → New → Blueprint → pick this repo.
+# Render asks for GEMINI_API_KEY (sync: false = you paste it; it is never stored in git).
+services:
+  - type: web
+    name: at-this-time-news
+    runtime: docker
+    plan: free
+    region: singapore
+    branch: main
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: CRON_SECRET
+        generateValue: true
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: FETCH_INTERVAL_MINUTES
+        value: "5"
