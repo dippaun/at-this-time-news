@@ -8,12 +8,13 @@ import { ThemeToggle } from '@/components/ui/client';
 import { buttonClass } from '@/components/ui/button';
 import { BrandMark } from './brand';
 import { cn } from '@/lib/utils';
+import { STATIC, epaperUrl, feedHref } from '@/lib/site';
 
 const NAV = [
-  { href: '/?focus=agri#feed', label: 'ખેતી', en: 'Agriculture' },
+  { href: feedHref('agri'), label: 'ખેતી', en: 'Agriculture' },
   { href: '/#mandi', label: 'મંડી ભાવ', en: 'Mandi rates' },
-  { href: '/?focus=industry#feed', label: 'ઉદ્યોગ', en: 'Industry' },
-  { href: '/?city=rajkot#feed', label: 'રાજકોટ', en: 'Rajkot' },
+  { href: feedHref('industry'), label: 'ઉદ્યોગ', en: 'Industry' },
+  { href: feedHref('', 'rajkot'), label: 'રાજકોટ', en: 'Rajkot' },
   { href: '/#latest', label: 'તાજા સમાચાર', en: 'Latest' },
 ];
 
@@ -31,13 +32,14 @@ export function SiteHeader({ brand, ticker }: { brand: any; ticker: { id: number
           {NAV.map((n) => <Link key={n.href} href={n.href} className="gu rounded-lg px-3 py-2 text-[15px] font-semibold text-muted-foreground transition hover:bg-muted hover:text-foreground">{n.label}</Link>)}
         </nav>
         <div className="ml-auto flex items-center gap-2">
-          <form action="/" className="relative hidden md:block">
+          {!STATIC ? <form action="/" className="relative hidden md:block">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <input name="q" placeholder="સમાચાર શોધો…" className="h-9 w-48 rounded-xl border bg-muted/50 pl-9 pr-3 text-sm outline-none transition focus:w-64 focus:bg-card focus:ring-4 focus:ring-primary/10 xl:w-56" />
-          </form>
-          <a href="/api/epaper" target="_blank" className={buttonClass('ghost', 'icon', 'hidden sm:inline-flex')} title="Today's e-paper"><Newspaper /></a>
+          </form> : null}
+          <a href={epaperUrl()} target="_blank" className={buttonClass('ghost', 'icon', 'hidden sm:inline-flex')} title="Today's e-paper"><Newspaper /></a>
           <ThemeToggle />
-          <Link href="/dashboard" className={buttonClass('primary', 'md', 'hidden sm:inline-flex')}>Studio <ArrowUpRight /></Link>
+          {STATIC ? <a href={epaperUrl()} target="_blank" className={buttonClass('primary', 'md', 'hidden sm:inline-flex')}><span className="gu">ઈ-પેપર</span> <ArrowUpRight /></a>
+            : <Link href="/dashboard" className={buttonClass('primary', 'md', 'hidden sm:inline-flex')}>Studio <ArrowUpRight /></Link>}
           <button className={buttonClass('outline', 'icon', 'lg:hidden')} onClick={() => setOpen(!open)} aria-label="Menu">{open ? <X /> : <Menu />}</button>
         </div>
       </div>
@@ -45,9 +47,10 @@ export function SiteHeader({ brand, ticker }: { brand: any; ticker: { id: number
         {open ? (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden border-t lg:hidden">
             <div className="container grid gap-1 py-3">
-              <form action="/" className="mb-2"><input name="q" placeholder="સમાચાર શોધો…" className="h-10 w-full rounded-xl border bg-muted/50 px-3 text-sm outline-none" /></form>
+              {!STATIC ? <form action="/" className="mb-2"><input name="q" placeholder="સમાચાર શોધો…" className="h-10 w-full rounded-xl border bg-muted/50 px-3 text-sm outline-none" /></form> : null}
               {NAV.map((n) => <Link key={n.href} href={n.href} className="flex items-center justify-between rounded-xl px-3 py-2.5 hover:bg-muted"><span className="gu font-semibold">{n.label}</span><span className="text-xs text-muted-foreground">{n.en}</span></Link>)}
-              <Link href="/dashboard" className={buttonClass('primary', 'lg', 'mt-2')}>Open Studio <ArrowUpRight /></Link>
+              {STATIC ? <a href={epaperUrl()} target="_blank" className={buttonClass('primary', 'lg', 'mt-2')}><span className="gu">આજનું ઈ-પેપર</span> <ArrowUpRight /></a>
+                : <Link href="/dashboard" className={buttonClass('primary', 'lg', 'mt-2')}>Open Studio <ArrowUpRight /></Link>}
             </div>
           </motion.div>
         ) : null}

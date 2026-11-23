@@ -13,13 +13,14 @@ import { ShareBar } from '@/components/portal/share';
 import { SmartImage, FadeIn } from '@/components/ui/client';
 import { Badge, focusTone } from '@/components/ui/badge';
 import { buttonClass } from '@/components/ui/button';
+import { STATIC, imgSrc, frameUrl } from '@/lib/site';
 
 export const dynamic = 'force-dynamic';
 type P = { params: Promise<{ id: string }> };
 
 export async function generateMetadata({ params }: P): Promise<Metadata> {
   const s = storyById(Number((await params).id));
-  return s ? { title: s.title, description: s.summary.slice(0, 160), openGraph: { images: s.image_url ? [s.image_url] : [] } } : {};
+  return s ? { title: s.title, description: s.summary.slice(0, 160), openGraph: { images: s.image_url ? [imgSrc(s.image_url)!] : [] } } : {};
 }
 
 export default async function StoryPage({ params }: P) {
@@ -48,7 +49,7 @@ export default async function StoryPage({ params }: P) {
           </FadeIn>
           <FadeIn delay={0.05}><SmartImage src={s.image_url} focus={s.focus} label={focusLabel(s.focus)} className="mt-6 aspect-[16/9] w-full rounded-3xl border" /></FadeIn>
           <div className="gu mt-8 space-y-5 text-[18px] leading-[1.85] text-foreground/90">{paras.map((p, i) => <p key={i} className={i === 0 ? 'text-[20px] font-medium text-foreground' : ''}>{p}</p>)}</div>
-          {kw.length ? <div className="mt-8 flex flex-wrap gap-2">{kw.map((k) => <Link key={k} href={`/?q=${encodeURIComponent(k)}#feed`} className="gu rounded-full border bg-muted/50 px-3 py-1 text-[13px] font-medium hover:border-primary/40 hover:text-primary">#{k.replace(/\s+/g, '')}</Link>)}</div> : null}
+          {kw.length ? <div className="mt-8 flex flex-wrap gap-2">{kw.map((k) => STATIC ? <span key={k} className="gu rounded-full border bg-muted/50 px-3 py-1 text-[13px] font-medium">#{k.replace(/\s+/g, '')}</span> : <Link key={k} href={`/?q=${encodeURIComponent(k)}#feed`} className="gu rounded-full border bg-muted/50 px-3 py-1 text-[13px] font-medium hover:border-primary/40 hover:text-primary">#{k.replace(/\s+/g, '')}</Link>)}</div> : null}
           <div className="mt-8 flex flex-col gap-4 rounded-3xl border bg-muted/40 p-5 sm:flex-row sm:items-center sm:justify-between">
             <div><div className="text-[12px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Original report</div><div className="font-semibold">{s.publisher}</div></div>
             <a href={s.link} target="_blank" rel="noreferrer" className={buttonClass('secondary', 'md')}>Read full story <ArrowUpRight /></a>
@@ -64,10 +65,10 @@ export default async function StoryPage({ params }: P) {
           {s.post_id ? (
             <div className="overflow-hidden rounded-3xl border bg-card shadow-soft">
               <div className="flex items-center justify-between p-4"><div className="flex items-center gap-2 text-sm font-semibold"><Instagram className="size-4 text-pink-500" />Instagram post</div><Badge tone="brand">4:5</Badge></div>
-              <img src={`/api/frame/${s.post_id}?v=${s.rev}`} alt="" className="w-full border-y" loading="lazy" />
+              <img src={frameUrl(s.post_id, s.rev)} alt="" className="w-full border-y" loading="lazy" />
               <div className="flex gap-2 p-4">
-                <a href={`/api/frame/${s.post_id}?v=${s.rev}&download=1`} className={buttonClass('outline', 'sm', 'flex-1')}><Download />PNG</a>
-                <a href={`/api/frame/${s.post_id}?format=reel`} target="_blank" className={buttonClass('outline', 'sm', 'flex-1')}>Reel 9:16</a>
+                <a href={frameUrl(s.post_id, s.rev, 'download')} download className={buttonClass('outline', 'sm', 'flex-1')}><Download />{STATIC ? 'Image' : 'PNG'}</a>
+                <a href={frameUrl(s.post_id, s.rev, 'reel')} target="_blank" className={buttonClass('outline', 'sm', 'flex-1')}>Reel 9:16</a>
               </div>
             </div>
           ) : null}

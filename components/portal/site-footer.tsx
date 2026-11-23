@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { MessageCircle, MapPin } from 'lucide-react';
 import { Instagram } from '@/components/ui/icons';
 import { BrandMark } from './brand';
+import { STATIC, epaperUrl, feedHref } from '@/lib/site';
 
 export function SiteFooter({ brand }: { brand: any }) {
   return (
@@ -19,22 +20,26 @@ export function SiteFooter({ brand }: { brand: any }) {
         <div>
           <div className="mb-3 text-[12px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Sections</div>
           <ul className="gu space-y-2 text-sm">
-            <li><Link href="/?focus=agri#feed" className="hover:text-primary">ખેતી અને મંડી</Link></li>
-            <li><Link href="/?focus=industry#feed" className="hover:text-primary">ઉદ્યોગ અને વેપાર</Link></li>
-            <li><Link href="/?city=rajkot#feed" className="hover:text-primary">રાજકોટ</Link></li>
-            <li><a href="/api/epaper" target="_blank" className="hover:text-primary">ઈ-પેપર</a></li>
+            <li><Link href={feedHref('agri')} className="hover:text-primary">ખેતી અને મંડી</Link></li>
+            <li><Link href={feedHref('industry')} className="hover:text-primary">ઉદ્યોગ અને વેપાર</Link></li>
+            <li><Link href={feedHref('', 'rajkot')} className="hover:text-primary">રાજકોટ</Link></li>
+            <li><a href={epaperUrl()} target="_blank" className="hover:text-primary">ઈ-પેપર</a></li>
           </ul>
         </div>
         <div>
           <div className="mb-3 text-[12px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Studio</div>
+          {STATIC ? (
+            <p className="text-sm leading-relaxed text-muted-foreground">This is the public read-only edition, refreshed automatically every 15 minutes. The team console (post queue, approvals, settings) runs on the server version.</p>
+          ) : (
           <ul className="space-y-2 text-sm">
             <li><Link href="/dashboard" className="hover:text-primary">Dashboard</Link></li>
             <li><Link href="/dashboard/queue" className="hover:text-primary">Post queue</Link></li>
             <li><Link href="/login" className="hover:text-primary">Sign in</Link></li>
           </ul>
+          )}
         </div>
       </div>
-      <div className="border-t"><div className="container flex flex-wrap items-center justify-between gap-2 py-5 text-[12px] text-muted-foreground"><span>© {new Date().getFullYear()} {brand.brandName} {brand.brandTag}. Demo build.</span><span>Stories link to their original publishers. Updated every 5 minutes.</span></div></div>
+      <div className="border-t"><div className="container flex flex-wrap items-center justify-between gap-2 py-5 text-[12px] text-muted-foreground"><span>© {new Date().getFullYear()} {brand.brandName} {brand.brandTag}. {STATIC ? '' : 'Demo build.'}</span><span>Stories link to their original publishers. Updated every {STATIC ? '15' : '5'} minutes.</span></div></div>
     </footer>
   );
 }

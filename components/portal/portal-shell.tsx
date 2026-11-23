@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { listWorkspaces } from '@/lib/db';
 import { latestStories } from '@/lib/queries';
 import { SiteHeader } from './site-header';
@@ -30,7 +31,7 @@ export function SectionTitle({ id, kicker, title, href, tone = 'brand' }: { id?:
           <h2 className="gu text-2xl font-extrabold tracking-tight">{title}</h2>
         </div>
       </div>
-      {href ? <a href={href} className="text-sm font-medium text-muted-foreground transition hover:text-primary">View all →</a> : null}
+      {href ? <Link href={href} className="text-sm font-medium text-muted-foreground transition hover:text-primary">View all →</Link> : null}
     </div>
   );
 }

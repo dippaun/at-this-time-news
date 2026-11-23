@@ -1,0 +1,100 @@
+# Permanent public site: https://dippaun.github.io/at-this-time-news/
+# Every 15 min: restore state -> fetch news + Gemini summaries + images -> crawl the app into static HTML -> deploy to GitHub Pages.
+# State: SQLite DB on the orphan `data` branch (dedupe, no re-spending Gemini quota); images/frames in the Actions cache.
+name: pages
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['app/**', 'components/**', 'lib/**', 'scripts/export-static.mjs', '.github/workflows/pages.yml']
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency: { group: pages-cycle, cancel-in-progress: false }
+jobs:
+  cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: { name: github-pages, url: '${{ steps.deploy.outputs.page_url }}' }
+    env:
+      NEXT_PUBLIC_STATIC: '1'
+      NEXT_PUBLIC_BASE_PATH: /at-this-time-news
+      DATA_DIR: ${{ github.workspace }}/data
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: gemini-3.5-flash-lite
+      AI_PROVIDER: auto
+      FETCH_INTERVAL_MINUTES: '0'
+      MAX_ITEMS_PER_RUN: '6'
+      IMAGE_BACKFILL_PER_RUN: '12'
+      PORT: '3000'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - name: ffmpeg
+        run: command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null)
+      - name: Restore DB from data branch
+        run: |
+          mkdir -p data/media data/frames data/static-frames
+          if git fetch -q --depth=1 origin data 2>/dev/null; then git show FETCH_HEAD:app.db > data/app.db && ls -la data/app.db; else echo "no data branch yet (first run)"; fi
+      - name: Restore media cache
+        uses: actions/cache/restore@v4
+        with: { path: "data/media\ndata/static-frames", key: 'media-${{ github.run_id }}', restore-keys: 'media-' }
+      - run: npm ci --no-audit --no-fund
+      - name: Restore Next build
+        id: nextcache
+        uses: actions/cache/restore@v4
+        with: { path: .next, key: "next-${{ hashFiles('app/**', 'components/**', 'lib/**', 'public/**', 'package-lock.json', 'next.config.mjs', 'tailwind.config.js', 'postcss.config.js', 'instrumentation.ts') }}" }
+      - name: Build
+        if: steps.nextcache.outputs.cache-hit != 'true'
+        run: npm run build
+      - name: Save Next build
+        if: steps.nextcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with: { path: .next, key: "${{ steps.nextcache.outputs.cache-primary-key }}" }
+      - name: Fetch news, summarise, images
+        run: |
+          export CRON_SECRET=$(openssl rand -hex 16)
+          nohup npx next start -p 3000 > app.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf -o /dev/null localhost:3000/at-this-time-news/api/health/ && break; sleep 2; done
+          curl -s -m 900 -X POST "localhost:3000/at-this-time-news/api/cron/?wait=1" -H "Authorization: Bearer $CRON_SECRET" | head -c 400; echo
+          curl -s localhost:3000/at-this-time-news/api/health/; echo
+      - name: Export static site
+        run: node scripts/export-static.mjs
+      - name: Stop app, compact + save DB to data branch
+        if: always()
+        run: |
+          pkill -f "next start" || true; pkill -f next-server || true; sleep 2
+          tail -n 25 app.log || true
+          [ -f data/app.db ] || exit 0
+          node -e "
+            const D=require('better-sqlite3');const d=new D('data/app.db');
+            const old=Date.now()-14*86400e3;
+            d.prepare('DELETE FROM items WHERE published_at<? AND id NOT IN (SELECT item_id FROM posts WHERE item_id IS NOT NULL)').run(old);
+            d.prepare('DELETE FROM posts WHERE created_at<?').run(Date.now()-30*86400e3);
+            d.prepare('DELETE FROM activity WHERE ts<?').run(Date.now()-5*86400e3);
+            d.prepare('DELETE FROM runs WHERE started_at<?').run(Date.now()-5*86400e3);
+            d.prepare("DELETE FROM kv WHERE k='auth_secret'").run();
+            d.pragma('wal_checkpoint(TRUNCATE)'); d.exec('VACUUM'); d.close();"
+          # drop media files no longer referenced
+          node -e "
+            const fs=require('fs');const D=require('better-sqlite3');const d=new D('data/app.db',{readonly:true});
+            const keep=new Set(d.prepare(\"SELECT image_url u FROM items WHERE image_url LIKE '/api/media/%'\").all().map(r=>r.u.split('/').pop()));
+            let n=0;for(const f of fs.readdirSync('data/media')) if(!keep.has(f)){fs.rmSync('data/media/'+f);n++;} console.log('pruned media',n,'kept',keep.size);"
+          mkdir -p /tmp/state && cp data/app.db /tmp/state/ && cd /tmp/state && git init -q && git checkout -q -b data
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          printf 'Pipeline state for the GitHub Pages build (SQLite: fetched items, summaries, image refs). Public news data only; no secrets.\n' > README.md
+          git add -A && git commit -qm "state $(date -u +%FT%TZ)" && git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data
+          du -sh data/app.db 2>/dev/null || ls -la /tmp/state
+      - name: Save media cache
+        if: always()
+        uses: actions/cache/save@v4
+        with: { path: "data/media\ndata/static-frames", key: 'media-${{ github.run_id }}' }
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: out }
+      - id: deploy
+        uses: actions/deploy-pages@v4

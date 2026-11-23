@@ -171,6 +171,10 @@ export async function backfillImages(wsId: number, cap = Number(process.env.IMAG
   const d = db();
   let done = 0, gen = 0, pub = 0, failed = 0;
   try {
+    // Self-heal: if a cached/generated file was lost (fresh disk / cache miss), fall back to the original URL and redo it.
+    for (const r of d.prepare(`SELECT id, image_url FROM items WHERE ws_id=? AND image_url LIKE '${LOCAL_PREFIX}%'`).all(wsId) as any[]) {
+      if (!fs.existsSync(path.join(MEDIA_DIR, path.basename(r.image_url)))) d.prepare("UPDATE items SET image_url=COALESCE(NULLIF(image_orig,''), ''), image_fail=0 WHERE id=?").run(r.id);
+    }
     const rows = d.prepare(`SELECT i.id, i.ws_id, i.title, i.focus, i.category, i.image_url, p.id post_id, p.flags, p.headline FROM items i LEFT JOIN posts p ON p.item_id=i.id AND p.status != 'rejected'
       WHERE i.ws_id=? AND i.processed != 3 AND (i.image_url IS NULL OR i.image_url NOT LIKE '${LOCAL_PREFIX}%') AND COALESCE(i.image_fail,0) < 2
       ORDER BY (p.id IS NOT NULL) DESC, (i.priority + CASE WHEN i.published_at > ? THEN 3 ELSE 0 END) DESC, i.published_at DESC LIMIT ?`).all(wsId, Date.now() - 12 * 3600e3, cap) as any[];

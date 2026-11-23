@@ -6,6 +6,7 @@ import { Moon, Sun } from 'lucide-react';
 import { Toaster as Sonner } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import { imgSrc } from '@/lib/site';
 
 export function FadeIn({ delay = 0, y = 12, className, ...p }: HTMLMotionProps<'div'> & { delay?: number; y?: number }) {
   return <motion.div initial={{ opacity: 0, y }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: '-40px' }} transition={{ duration: 0.45, delay, ease: [0.21, 0.47, 0.32, 0.98] }} className={className} {...p} />;
@@ -51,7 +52,7 @@ export function SmartImage({ src, alt = '', className, label, focus }: { src?: s
   return (
     <div className={cn('relative overflow-hidden bg-muted', className)}>
       {!loaded ? <div className="absolute inset-0 animate-pulse bg-muted" /> : null}
-      <img ref={ref} src={src!} alt={alt} loading="lazy" referrerPolicy="no-referrer" onLoad={() => setLoaded(true)} onError={() => setBad(true)} className={cn('size-full object-cover transition duration-500', loaded ? 'opacity-100' : 'opacity-0')} />
+      <img ref={ref} src={imgSrc(src)!} alt={alt} loading="lazy" referrerPolicy="no-referrer" onLoad={() => setLoaded(true)} onError={() => setBad(true)} className={cn('size-full object-cover transition duration-500', loaded ? 'opacity-100' : 'opacity-0')} />
     </div>
   );
 }
